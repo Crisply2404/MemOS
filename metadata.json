@@ -1,0 +1,5 @@
+{
+  "name": "MemOS - Memory Governance Engine",
+  "description": "A distributed Agent Memory & Context Governance Engine frontend. Features 3D cortex visualization, memory decay heatmaps, and RAG context optimization debugging.",
+  "requestFramePermissions": []
+}
