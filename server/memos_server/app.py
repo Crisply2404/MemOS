@@ -18,7 +18,9 @@ from memos_server.api_models import (
     QueryResponse,
     RetrievedChunk,
 )
-from memos_server.db import Db, create_db
+from memos_server.db import create_db
+from memos_server.condensation import latest_condensation
+from memos_server.queue import Queues, create_queues
 from memos_server.embedding import fake_embedding
 from memos_server.l1_redis import L1Redis, append_message, create_l1, get_window
 from memos_server.settings import Settings, get_settings
@@ -35,6 +37,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     db = create_db(settings.database_url)
     l1 = create_l1(settings.redis_url, settings.l1_window_size)
+    queues = create_queues(settings.redis_url)
 
     # --- Dependencies (FastAPI DI) ---
     def get_db_session() -> Session:
@@ -46,6 +49,9 @@ def create_app() -> FastAPI:
 
     def get_cfg() -> Settings:
         return settings
+
+    def get_queues() -> Queues:
+        return queues
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -118,6 +124,7 @@ def create_app() -> FastAPI:
         req: QueryRequest,
         session: Session = Depends(get_db_session),
         l1_store: L1Redis = Depends(get_l1),
+        q: Queues = Depends(get_queues),
     ) -> QueryResponse:
         now = int(time.time() * 1000)
 
@@ -156,14 +163,26 @@ def create_app() -> FastAPI:
                 )
             )
 
-        # 2) "Condensed" summary (MVP): naive truncation of raw chunks
-        # Principle: condensation exists to reduce token usage; we'll replace this with RQ worker later.
         raw_combined = "\n".join(["[L1]" + "\n" + l1_text] + [f"[L2 score={c.score:.3f}] {c.text}" for c in chunks])
-        condensed = raw_combined[:240] + ("..." if len(raw_combined) > 240 else "")
 
-        # crude token estimate: ~4 chars/token (good enough for dashboards)
-        token_original = max(1, len(raw_combined) // 4)
-        token_condensed = max(1, len(condensed) // 4)
+        # 2) Try to reuse latest persisted condensation (produced by worker).
+        persisted = latest_condensation(session, req.namespace, req.session_id)
+        if persisted:
+            condensed, token_original, token_condensed = persisted
+        else:
+            # If no condensation exists yet, enqueue a background job and return a simple fallback.
+            memory_ids = [c.id for c in chunks]
+            q.condensation.enqueue(
+                "memos_server.condensation.run_condensation_job",
+                database_url=settings.database_url,
+                namespace=req.namespace,
+                session_id=req.session_id,
+                memory_ids=memory_ids,
+                raw_text=raw_combined,
+            )
+            condensed = raw_combined[:240] + ("..." if len(raw_combined) > 240 else "")
+            token_original = max(1, len(raw_combined) // 4)
+            token_condensed = max(1, len(condensed) // 4)
 
         similarity = float(chunks[0].score) if chunks else 0.0
 

@@ -39,9 +39,20 @@
       - `POST /v1/ingest` 写入 2 条消息（user/agent）
       - `POST /v1/query` 查询并观察返回的 `raw_chunks` 和 `condensed_summary`
 
-- [ ] 实现 RQ Worker（真正的 condensation）
+- [x] 实现 RQ Worker（真正的 condensation）
   - 目标：把“摘要生成”放到后台，写入 `condensations` 表，并累积 token savings。
   - 验证：执行一段 ingest 后，触发 worker 任务；`condensations` 表出现新记录。
+
+  - 本地运行 worker：
+    - `cd server && source .venv/bin/activate && python worker.py`
+  - 验证方式（推荐）：
+    - 1) 先调用 `POST /v1/query`（会自动 enqueue 任务）
+    - 2) 观察 worker 终端输出有 job 执行
+    - 3) 再次调用 `POST /v1/query`，看到 token_usage_* 来自已落库摘要（更稳定）
+
+  - 常见现象（正常）：
+    - 第一次 `query` 会 enqueue 任务，因此 worker 会打印“Job OK”。
+    - 之后再次 `query` 如果复用了最新摘要（无需重新生成），worker 可能不再打印任何内容。
 
 - [ ] 增加 `/v1/ops/pipeline` 与 `/v1/ops/audit`
   - 目标：让前端 Pipeline/Audit 页面能拉到真实数据。

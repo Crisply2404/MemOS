@@ -211,3 +211,45 @@
 - `raw_chunks` 返回了两条 L2 记忆（分别来自 user/agent），说明 L2 写入与检索链路打通。
 - `condensed_summary` 返回了 L1 + L2 拼接后的内容，说明“上下文拼装”结构已经成立。
 
+---
+
+## 11. 引入 RQ Worker（让 condensation 变成后台任务）
+
+**做了什么**
+
+- 增加 RQ 队列与 worker 入口：
+  - `server/memos_server/queue.py`：创建名为 `condensation` 的队列
+  - `server/worker.py`：启动 worker，监听并执行后台任务
+- 增加 condensation 逻辑与数据库落盘：
+  - `server/memos_server/condensation.py`：
+    - 生成“简易摘要”（MVP 先用截断，后续可换 LLM）
+    - 估算 token（粗略用字符数/4）
+    - 把摘要与 token 对照写入 `condensations` 表
+- 更新 `POST /v1/query` 行为：
+  - 如果数据库里已有最新摘要：直接复用（更快、可重复展示）
+  - 如果没有摘要：把摘要任务丢给队列，先返回 fallback（不阻塞 API）
+
+**为什么这么做**
+
+- 摘要/压缩属于“慢工作”，不能卡住用户每次查询（否则 UI 体验差、Agent 延迟高）。
+- 任务落库后，Dashboard 才能累计真实的 token savings。
+
+**原理**
+
+- API（FastAPI）只负责“接请求、快速返回”。
+- Worker（RQ）在后台慢慢跑任务：从 Redis 队列拿任务 → 执行 → 写入 Postgres。
+- 下一次 query 就可以直接读最新 condensation 结果，实现“缓存/复用”。
+
+**验证（通过）**
+
+- 同一组 `namespace/session_id` 下连续触发两次 `POST /v1/query`：
+  - 第一次：会 enqueue condensation 任务（worker 执行并落库）
+  - 第二次：worker 无输出（正常，因为复用数据库里的最新摘要），API 直接返回相同的 `condensed_summary`
+
+**踩坑记录（已修复）**
+
+- 现象：运行 `python worker.py` 报错 `ImportError: cannot import name 'Connection' from 'rq'`。
+- 原因：RQ 2.x 版本移除了 `Connection` 这种导入方式。
+- 修复：直接用 `Worker(..., connection=redis_conn)` 传入连接即可。
+
+
