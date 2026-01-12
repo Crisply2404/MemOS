@@ -3,6 +3,7 @@
 这份文档的目标：用小白也能看懂的方式，记录我们**每一步做了什么、为什么这么做、原理是什么**。
 
 > 约定：
+>
 > - **前端** = 你现在的 React 控制台
 > - **后端** = `server/` 下的 FastAPI（Memory Controller）
 > - **L1** = Redis（短期会话记忆）
@@ -15,9 +16,9 @@
 
 做一个“记忆管家服务”（Memory-as-a-Service）：
 
-1) 把你每次对话/事件先**记下来**（`ingest`）
-2) 你需要回答问题时，从记忆里**找相关内容**（`query`）
-3) 太长的内容在后台**压缩成摘要**（`condensation`），减少 Token 成本
+1. 把你每次对话/事件先**记下来**（`ingest`）
+2. 你需要回答问题时，从记忆里**找相关内容**（`query`）
+3. 太长的内容在后台**压缩成摘要**（`condensation`），减少 Token 成本
 
 ---
 
@@ -252,4 +253,69 @@
 - 原因：RQ 2.x 版本移除了 `Connection` 这种导入方式。
 - 修复：直接用 `Worker(..., connection=redis_conn)` 传入连接即可。
 
+---
 
+## 12. 前端联调：RAG Debugger 从 mock 切到真实 API
+
+**做了什么**
+
+- 新增前端 API 封装：`utils/api.ts`，用 `fetch` 调用后端 `/v1/ingest` 和 `/v1/query`。
+- 在 `App.tsx` 把原来“setTimeout + mock retrieval”的流程替换成真实调用：
+  - 发送消息 → `POST /v1/ingest`
+  - 然后立刻 `POST /v1/query`，拿到 `raw_chunks / condensed_summary / token_usage_*` 并渲染到右侧对比面板。
+- 给 RAG Debugger 增加一个轻量错误提示条：如果后端没启动、CORS 不通或请求失败，UI 会显示错误信息，方便排查。
+
+**为什么这么做**
+
+- 只有把 UI 从 mock 切到真实 API，你的项目才从“后端跑通”升级成“可演示产品”。
+- RAG Debugger 是最直观的展示位：它能一眼看到 raw chunks、condensed summary 以及 token 省了多少。
+
+**原理是什么（小白版）**
+
+- `ingest` 就像“记笔记”：把你这句用户输入写进 L1（Redis 最近对话）和 L2（Postgres 长期记忆）。
+- `query` 就像“翻笔记”：把最近对话（L1）和相近记忆（L2 向量检索）拼成 raw，再用 worker 生成/复用摘要当 condensed。
+- 前端只需要把后端返回的字段映射到 UI 上即可（raw vs condensed + token）。
+
+**当前状态**
+
+- ✅ RAG Debugger 已不依赖 `utils/mockData.ts` 的检索结果。
+- ✅ 支持 `VITE_API_BASE_URL` 配置后端地址（默认 `http://localhost:8000`）。
+
+**如何验证**
+
+- 启动后端：`cd server && source .venv/bin/activate && uvicorn memos_server.app:create_app --factory --reload --port 8000`
+- 启动 worker：`cd server && source .venv/bin/activate && python worker.py`
+- 启动前端：`npm install && npm run dev`
+- 打开 UI → RAG Debugger：发送消息后右侧出现真实的 Raw/Condensed；再次 query 会复用已落库摘要（worker 可能不再打印）。
+
+---
+
+## 13. 增加 Ops 端点：/v1/ops/pipeline 与 /v1/ops/audit
+
+**做了什么**
+
+- 新增两个运维/观测接口：
+  - `GET /v1/ops/pipeline`：返回 condensation 队列长度 + 最近的 condensation 落库记录。
+  - `GET /v1/ops/audit`：返回最近的审计事件（支持按 `namespace/session_id` 过滤）。
+
+**为什么这么做**
+
+- 你现在的系统虽然“能跑”，但缺少“可观测性”：
+  - worker 是否有积压？
+  - 最近到底生成了哪些摘要？
+  - 系统做过哪些决策（ingest/query/condensation）？
+- 有了这两个接口，前端的 Pipeline / Audit（后续页面）才能从 mock 逐步切换到真实数据。
+
+**原理是什么（小白版）**
+
+- `ops/pipeline` 就像“生产线看板”：队列里还有多少件没处理、最近加工出来了哪些摘要。
+- `ops/audit` 就像“操作记录”：系统每次 ingest/query/condensation 都会记一条日志，方便追查与解释。
+
+**如何验证**
+
+- 启动后端：`cd server && source .venv/bin/activate && uvicorn memos_server.app:create_app --factory --reload --port 8000`
+- 打开 Swagger：`http://localhost:8000/docs`
+- 调用：
+  - `GET /v1/ops/pipeline`
+  - `GET /v1/ops/audit?limit=50`
+  - 可选：`GET /v1/ops/audit?namespace=Project_X&session_id=...`

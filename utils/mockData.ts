@@ -38,12 +38,12 @@ export const getMockRetrieval = (query: string): RetrievalContext => {
     id: `ret-${Date.now()}`,
     sourceTier: MemoryTier.L2_SEMANTIC,
     similarity: 0.89 + Math.random() * 0.1,
-    originalText: `[TIMESTAMP 2023-10-27T10:00:00] User asked about the "Project Phoenix" deadline.
-    [TIMESTAMP 2023-10-27T10:01:00] System replied deadline is Q4.
-    [TIMESTAMP 2023-10-27T10:02:00] User mentioned a delay in the frontend module.
-    [TIMESTAMP 2023-10-27T10:05:00] User requested to move the deadline to Jan 2024.
-    [TIMESTAMP 2023-10-27T10:06:00] Manager approved request via email reference #442.`,
-    condensedText: `User delayed "Project Phoenix" deadline to Jan 2024 due to frontend module issues. Change approved by Manager (Ref #442).`,
+    originalText: `[时间 2023-10-27 10:00:00] 用户询问「Project Aurora」的交付时间。
+    [时间 2023-10-27 10:01:00] 系统回复：当前计划是 Q4。
+    [时间 2023-10-27 10:02:00] 用户提到前端模块进度延迟。
+    [时间 2023-10-27 10:05:00] 用户申请把交付时间调整到 2024 年 1 月。
+    [时间 2023-10-27 10:06:00] 负责人邮件确认批准（邮件编号 #442）。`,
+    condensedText: `因前端模块延期，用户将「Project Aurora」交付时间从 Q4 调整到 2024 年 1 月，并已获负责人邮件批准（#442）。`,
     tokenUsageOriginal: 145,
     tokenUsageCondensed: 28
   };
