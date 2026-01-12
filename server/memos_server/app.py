@@ -5,6 +5,7 @@ import time
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,8 @@ from memos_server.api_models import (
     IngestRequest,
     IngestResponse,
     MemoryTier,
+    OpsAuditResponse,
+    OpsPipelineResponse,
     OpsStatsResponse,
     QueryRequest,
     QueryResponse,
@@ -33,6 +36,21 @@ def create_app() -> FastAPI:
     """
 
     app = FastAPI(title="MemOS Memory Controller", version="0.1.0")
+
+    # Allow the Vite dev server to call the API from the browser (CORS).
+    # Why: without this, browsers will block requests from http://localhost:3000 to http://localhost:8000.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     settings = get_settings()
     db = create_db(settings.database_url)
@@ -241,5 +259,91 @@ def create_app() -> FastAPI:
             token_savings=int(token_savings),
             compression_ratio=float(ratio),
         )
+
+    @app.get("/v1/ops/pipeline", response_model=OpsPipelineResponse)
+    def ops_pipeline(
+        session: Session = Depends(get_db_session),
+        q: Queues = Depends(get_queues),
+    ) -> OpsPipelineResponse:
+        recent = session.execute(
+            text(
+                """
+                SELECT id, namespace, session_id, token_original, token_condensed, created_at
+                FROM condensations
+                ORDER BY created_at DESC
+                LIMIT 20
+                """
+            )
+        ).mappings().all()
+
+        return OpsPipelineResponse(
+            queues=[{"name": "condensation", "count": int(q.condensation.count)}],
+            recent_condensations=[
+                {
+                    "id": str(r["id"]),
+                    "namespace": str(r["namespace"]),
+                    "session_id": str(r["session_id"]),
+                    "token_original": int(r["token_original"]),
+                    "token_condensed": int(r["token_condensed"]),
+                    "created_at": str(r["created_at"]),
+                }
+                for r in recent
+            ],
+        )
+
+    @app.get("/v1/ops/audit", response_model=OpsAuditResponse)
+    def ops_audit(
+        session: Session = Depends(get_db_session),
+        namespace: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+    ) -> OpsAuditResponse:
+        limit = max(1, min(limit, 200))
+
+        where = []
+        params: dict[str, object] = {"limit": limit}
+        if namespace:
+            where.append("namespace = :namespace")
+            params["namespace"] = namespace
+        if session_id:
+            where.append("session_id = :session_id")
+            params["session_id"] = session_id
+
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+        rows = session.execute(
+            text(
+                f"""
+                SELECT id, namespace, session_id, event_type, details, created_at
+                FROM audit_logs
+                {where_sql}
+                ORDER BY created_at DESC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        events = []
+        for r in rows:
+            details_value = r["details"]
+            if isinstance(details_value, str):
+                try:
+                    details_value = json.loads(details_value)
+                except Exception:
+                    details_value = {"raw": details_value}
+
+            events.append(
+                {
+                    "id": str(r["id"]),
+                    "namespace": str(r["namespace"]),
+                    "session_id": str(r["session_id"]),
+                    "event_type": str(r["event_type"]),
+                    "details": details_value or {},
+                    "created_at": str(r["created_at"]),
+                }
+            )
+
+        return OpsAuditResponse(events=events)
 
     return app

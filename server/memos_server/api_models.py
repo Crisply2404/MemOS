@@ -75,5 +75,37 @@ class OpsStatsResponse(BaseModel):
     compression_ratio: float
 
 
+class OpsQueueInfo(BaseModel):
+    name: str
+    count: int
+
+
+class OpsRecentCondensation(BaseModel):
+    id: str
+    namespace: str
+    session_id: str
+    token_original: int
+    token_condensed: int
+    created_at: str
+
+
+class OpsPipelineResponse(BaseModel):
+    queues: list[OpsQueueInfo]
+    recent_condensations: list[OpsRecentCondensation]
+
+
+class OpsAuditEvent(BaseModel):
+    id: str
+    namespace: str
+    session_id: str
+    event_type: str
+    details: dict[str, Any]
+    created_at: str
+
+
+class OpsAuditResponse(BaseModel):
+    events: list[OpsAuditEvent]
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
