@@ -4,17 +4,21 @@ import { RetrievalContext, MemoryTier, ChatMessage } from '../types';
 import { Badge } from './ui/Card';
 
 interface RagDebuggerProps {
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string) => void | Promise<void>;
   messages: ChatMessage[];
   retrievalContext: RetrievalContext | null;
   isProcessing: boolean;
+  apiError?: string | null;
+  namespace?: string;
 }
 
 export const RagDebugger: React.FC<RagDebuggerProps> = ({ 
   onSendMessage, 
   messages, 
   retrievalContext,
-  isProcessing 
+  isProcessing,
+  apiError,
+  namespace
 }) => {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
@@ -41,8 +45,14 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
             <div className="w-2 h-2 rounded-full bg-brand-accent animate-pulse"></div>
             <h3 className="font-semibold text-gray-200">Live Agent Interaction</h3>
           </div>
-          <Badge color="blue">Namespace: Project_X</Badge>
+          <Badge color="blue">Namespace: {namespace || 'Project_X'}</Badge>
         </div>
+
+        {apiError && (
+          <div className="px-4 py-2 border-b border-mem-border bg-red-500/10 text-red-300 text-xs font-mono">
+            {apiError}
+          </div>
+        )}
         
         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
           {messages.length === 0 && (

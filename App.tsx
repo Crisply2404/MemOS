@@ -5,7 +5,8 @@ import { MemoryPipeline } from './components/MemoryPipeline';
 import { SemanticRadar } from './components/SemanticRadar'; // New Import
 import { RagDebugger } from './components/RagDebugger';
 import { Dashboard } from './components/Dashboard';
-import { generateMockMemories, getMockRetrieval } from './utils/mockData';
+import { generateMockMemories } from './utils/mockData';
+import { ingest, query as queryApi } from './utils/api';
 
 const SidebarItem = ({ 
   icon: Icon, 
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [currentContext, setCurrentContext] = useState<RetrievalContext | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [systemStats, setSystemStats] = useState<SystemStats>({
     totalMemories: 14052,
     activeContexts: 3,
@@ -44,12 +46,21 @@ const App: React.FC = () => {
     compressionRatio: 0.82
   });
 
+  const namespace = 'Project_X';
+  const [sessionId] = useState(() => {
+    const existing = localStorage.getItem('memos_session_id');
+    if (existing) return existing;
+    const created = `web-${crypto.randomUUID()}`;
+    localStorage.setItem('memos_session_id', created);
+    return created;
+  });
+
   // Initialize Data
   useEffect(() => {
     setMemories(generateMockMemories(150));
   }, []);
 
-  const handleSendMessage = (text: string) => {
+  const handleSendMessage = async (text: string) => {
     const newUserMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
@@ -59,40 +70,69 @@ const App: React.FC = () => {
     
     setChatMessages(prev => [...prev, newUserMsg]);
     setIsProcessing(true);
+    setApiError(null);
 
-    // Simulate Backend Latency & Processing
-    setTimeout(() => {
-      // 1. Retrieve Context
-      const context = getMockRetrieval(text);
+    try {
+      await ingest({
+        namespace,
+        session_id: sessionId,
+        role: 'user',
+        text,
+        metadata: {
+          source: 'web',
+          ui: 'RagDebugger'
+        }
+      });
+
+      const response = await queryApi({
+        namespace,
+        session_id: sessionId,
+        query: text,
+        top_k: 6
+      });
+
+      const originalText = response.raw_chunks.map((chunk) => `(${chunk.tier}) ${chunk.text}`).join('\n');
+      const context: RetrievalContext = {
+        id: response.id,
+        sourceTier: response.source_tier as MemoryTier,
+        similarity: response.similarity,
+        originalText,
+        condensedText: response.condensed_summary,
+        tokenUsageOriginal: response.token_usage_original,
+        tokenUsageCondensed: response.token_usage_condensed
+      };
+
       setCurrentContext(context);
-      
-      // 2. Add "New Memory" visual effect
+
       const newMemory: MemoryNode = {
         id: `new-${Date.now()}`,
         content: text,
         tier: context.sourceTier,
-        importanceScore: 1, // High importance newly created
-        embedding: [Math.random()*2, Math.random()*2, Math.random()*2], // Simplified position
+        importanceScore: 1,
+        embedding: [Math.random() * 2, Math.random() * 2, Math.random() * 2],
         timestamp: Date.now(),
-        namespace: 'Active_Session'
+        namespace
       };
       setMemories(prev => [...prev, newMemory]);
+
       setSystemStats(prev => ({
         ...prev,
         totalMemories: prev.totalMemories + 1,
         tokenSavings: prev.tokenSavings + (context.tokenUsageOriginal - context.tokenUsageCondensed)
       }));
 
-      // 3. Agent Response
       const agentMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'agent',
-        content: `I've updated the context based on your input. Specifically, I accessed the ${context.sourceTier} and found related entities. ${context.condensedText}`,
+        content: context.condensedText,
         timestamp: Date.now()
       };
       setChatMessages(prev => [...prev, agentMsg]);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : 'Unknown API error');
+    } finally {
       setIsProcessing(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -217,6 +257,8 @@ const App: React.FC = () => {
                 messages={chatMessages}
                 retrievalContext={currentContext}
                 isProcessing={isProcessing}
+                apiError={apiError}
+                namespace={namespace}
               />
             )}
           </div>
