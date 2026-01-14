@@ -6,7 +6,7 @@ import { SemanticRadar } from './components/SemanticRadar'; // New Import
 import { RagDebugger } from './components/RagDebugger';
 import { Dashboard } from './components/Dashboard';
 import { generateMockMemories } from './utils/mockData';
-import { ingest, query as queryApi } from './utils/api';
+import { devSeed, ingest, query as queryApi } from './utils/api';
 
 const SidebarItem = ({ 
   icon: Icon, 
@@ -47,13 +47,42 @@ const App: React.FC = () => {
   });
 
   const namespace = 'Project_X';
-  const [sessionId] = useState(() => {
+  const [sessionId, setSessionId] = useState(() => {
     const existing = localStorage.getItem('memos_session_id');
     if (existing) return existing;
     const created = `web-${crypto.randomUUID()}`;
     localStorage.setItem('memos_session_id', created);
     return created;
   });
+
+  const handleSeedDemo = async () => {
+    setIsProcessing(true);
+    setApiError(null);
+    try {
+      await devSeed({ namespace, session_id: sessionId, reset: true });
+
+      const systemMsg: ChatMessage = {
+        id: `sys-${Date.now()}`,
+        role: 'system',
+        content: 'Seeded demo memories into L2 (Postgres). Ask a question to trigger retrieval + condensation.',
+        timestamp: Date.now()
+      };
+      setChatMessages(prev => [...prev, systemMsg]);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : 'Failed to seed demo data');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleNewSession = () => {
+    const created = `web-${crypto.randomUUID()}`;
+    localStorage.setItem('memos_session_id', created);
+    setSessionId(created);
+    setChatMessages([]);
+    setCurrentContext(null);
+    setApiError(null);
+  };
 
   // Initialize Data
   useEffect(() => {
@@ -259,6 +288,9 @@ const App: React.FC = () => {
                 isProcessing={isProcessing}
                 apiError={apiError}
                 namespace={namespace}
+                onSeedDemo={handleSeedDemo}
+                onNewSession={handleNewSession}
+                sessionId={sessionId}
               />
             )}
           </div>

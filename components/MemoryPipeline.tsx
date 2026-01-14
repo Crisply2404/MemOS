@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ArrowRight, FileText, Zap, Box, Tag, Layers, RefreshCw, Archive, AlertCircle, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Zap, Tag, Layers, RefreshCw, Archive, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { MemoryTier } from '../types';
 import { Badge } from './ui/Card';
+import { opsPipeline } from '../utils/api';
 
 interface LogItem {
   id: string;
@@ -21,88 +22,87 @@ interface ProcessedItem {
   timestamp: number;
 }
 
-const RAW_SAMPLES = [
-  "Check the production logs for the payment gateway. We noticed a latency spike around 2 AM UTC specifically for the EU cluster.",
-  "I need the updated API documentation for the user authentication endpoints, specifically the JWT refresh token rotation policy.",
-  "Can you remind me who the project lead for the 'Orion' initiative is? I believe it might be Sarah, but check the org chart.",
-  "Extract all the email addresses from this JSON payload and format them as a CSV list for the marketing campaign export.",
-  "What is the current status of the Q3 infrastructure migration ticket? Has the database sharding been completed?",
-  "Please summarize the meeting notes from yesterday's standup regarding the frontend performance regression."
-];
-
-const ENTITIES_MAP: Record<string, string[]> = {
-  "payment": ["Payment Gateway", "Latency", "EU Cluster"],
-  "authentication": ["API Docs", "JWT", "Security"],
-  "Orion": ["Project Orion", "Sarah", "Org Chart"],
-  "JSON": ["Data Extraction", "CSV", "Marketing"],
-  "infrastructure": ["Q3 Migration", "DB Sharding", "Ops"],
-  "frontend": ["Performance", "Regression", "Standup"]
-};
+function safeParseTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
 
 export const MemoryPipeline: React.FC = () => {
-  const [ingestionQueue, setIngestionQueue] = useState<LogItem[]>([]);
-  const [processingItem, setProcessingItem] = useState<LogItem | null>(null);
-  const [processingStage, setProcessingStage] = useState<'idle' | 'summarizing' | 'extracting'>('idle');
+  const [pipelineQueueCount, setPipelineQueueCount] = useState<number>(0);
   const [vaultItems, setVaultItems] = useState<ProcessedItem[]>([]);
-  
-  // Auto-ingest simulation
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (ingestionQueue.length < 5) {
-        const text = RAW_SAMPLES[Math.floor(Math.random() * RAW_SAMPLES.length)];
-        const newItem: LogItem = {
-          id: `log-${Date.now()}`,
-          text,
-          tokens: Math.floor(text.length / 4),
-          timestamp: Date.now(),
-          status: 'pending'
-        };
-        setIngestionQueue(prev => [newItem, ...prev]);
-      }
-    }, 3500);
-    return () => clearInterval(interval);
-  }, [ingestionQueue.length]);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
 
-  // Worker Processor Logic
-  useEffect(() => {
-    if (!processingItem && ingestionQueue.length > 0) {
-      // Pick next item
-      const itemToProcess = ingestionQueue[ingestionQueue.length - 1]; // Process oldest (FIFO)
-      
-      // Remove from queue
-      setIngestionQueue(prev => prev.slice(0, -1));
-      
-      // Start Processing
-      setProcessingItem(itemToProcess);
-      setProcessingStage('summarizing');
+  const processingItem: LogItem | null = useMemo(() => {
+    if (pipelineQueueCount <= 0) return null;
+    return {
+      id: `job-${pipelineQueueCount}`,
+      text: 'Condensation queue is processing recent sessions…',
+      tokens: 0,
+      timestamp: Date.now(),
+      status: 'processing'
+    };
+  }, [pipelineQueueCount]);
 
-      // Stage 1: Summarize (1.5s)
-      setTimeout(() => {
-        setProcessingStage('extracting');
-        
-        // Stage 2: Extract Entities (1.5s)
-        setTimeout(() => {
-          // Finish
-          const entities = Object.entries(ENTITIES_MAP).find(([k]) => itemToProcess.text.includes(k))?.[1] || ["General"];
-          const summary = `Summary: ${itemToProcess.text.split(' ').slice(0, 8).join(' ')}...`;
-          
-          const finishedItem: ProcessedItem = {
-            id: `vault-${Date.now()}`,
-            originalId: itemToProcess.id,
-            summary,
-            entities,
+  const processingStage: 'idle' | 'summarizing' | 'extracting' = useMemo(() => {
+    if (!processingItem) return 'idle';
+    return 'summarizing';
+  }, [processingItem]);
+
+  useEffect(() => {
+    let canceled = false;
+
+    const load = async () => {
+      try {
+        const data = await opsPipeline();
+        if (canceled) return;
+
+        const condensationQueue = data.queues.find(q => q.name === 'condensation');
+        setPipelineQueueCount(condensationQueue?.count ?? 0);
+
+        const mapped: ProcessedItem[] = data.recent_condensations.slice(0, 10).map((row) => {
+          const original = row.token_original;
+          const condensed = row.token_condensed;
+          const saved = Math.max(0, original - condensed);
+
+          return {
+            id: row.id,
+            originalId: row.session_id,
+            summary: `Condensed session ${row.session_id} (${row.namespace})` ,
+            entities: [row.namespace],
             tier: MemoryTier.L2_SEMANTIC,
-            savedTokens: Math.floor(itemToProcess.tokens * 0.7),
-            timestamp: Date.now()
+            savedTokens: saved,
+            timestamp: safeParseTimestamp(row.created_at)
           };
+        });
 
-          setVaultItems(prev => [finishedItem, ...prev].slice(0, 10));
-          setProcessingItem(null);
-          setProcessingStage('idle');
-        }, 1500);
-      }, 1500);
-    }
-  }, [processingItem, ingestionQueue]);
+        setVaultItems(mapped);
+        setLastUpdatedAt(Date.now());
+        setApiError(null);
+      } catch (err) {
+        if (canceled) return;
+        setApiError(err instanceof Error ? err.message : 'Failed to load pipeline data');
+      }
+    };
+
+    load();
+    const interval = setInterval(load, 2000);
+    return () => {
+      canceled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const ingestionQueue: LogItem[] = useMemo(() => {
+    const pending = Math.min(pipelineQueueCount, 5);
+    return Array.from({ length: pending }).map((_, idx) => ({
+      id: `pending-${idx + 1}`,
+      text: 'Pending condensation job (from /v1/query enqueue)',
+      tokens: 0,
+      timestamp: Date.now() - idx * 1000,
+      status: 'pending'
+    }));
+  }, [pipelineQueueCount]);
 
   return (
     <div className="h-full flex flex-col gap-6 p-2">
@@ -126,6 +126,18 @@ export const MemoryPipeline: React.FC = () => {
            </div>
         </div>
       </div>
+
+      {apiError && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-xs font-mono text-red-300">
+          Pipeline API error: {apiError}
+        </div>
+      )}
+
+      {lastUpdatedAt && (
+        <div className="text-[10px] text-gray-500 font-mono">
+          Last updated: {new Date(lastUpdatedAt).toLocaleTimeString()}
+        </div>
+      )}
 
       {/* Main 3-Column Layout */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">

@@ -137,6 +137,99 @@ def create_app() -> FastAPI:
 
         return IngestResponse(memory_id=str(memory_id))
 
+    @app.post("/v1/dev/seed")
+    def dev_seed(
+        namespace: str = "Demo",
+        session_id: str = "demo-session",
+        reset: bool = True,
+        session: Session = Depends(get_db_session),
+    ) -> dict[str, object]:
+        """Seed a deterministic demo dataset.
+
+        Why:
+        - In demos, an empty DB makes it unclear what to ask.
+        - This endpoint creates a reproducible set of memories so RAG + condensation can be shown instantly.
+
+        Notes:
+        - `reset=true` clears existing rows for the same (namespace, session_id) only (not the whole DB).
+        - For a full reset, use `docker compose down -v`.
+        """
+
+        if reset:
+            session.execute(
+                text("DELETE FROM condensations WHERE namespace = :ns AND session_id = :sid"),
+                {"ns": namespace, "sid": session_id},
+            )
+            session.execute(
+                text("DELETE FROM memories WHERE namespace = :ns AND session_id = :sid"),
+                {"ns": namespace, "sid": session_id},
+            )
+            session.execute(
+                text("DELETE FROM audit_logs WHERE namespace = :ns AND session_id = :sid"),
+                {"ns": namespace, "sid": session_id},
+            )
+
+        demo_messages = [
+            ("user", "我们在做 MemOS：Agent 记忆与上下文治理服务。后端 FastAPI + Redis(L1) + Postgres(pgvector)(L2) + RQ worker（condensation）。"),
+            ("user", "我的偏好：所有命令用 Windows PowerShell 7（pwsh）；回答要简洁，先结论后解释；所有步骤必须可验证（给具体命令/URL）。"),
+            ("user", "运行方式：docker compose 启动 postgres/redis；后端 uvicorn memos_server.app:create_app --factory --reload --port 8000；前端 npm run dev -- --port 3000。"),
+            ("user", "踩坑：本机 postgres 占用 5432 会导致连错数据库并出现 password authentication failed，表现像 CORS 但本质是 500。"),
+            ("agent", "下一步计划：1）Pipeline 切真数据（/v1/ops/pipeline）；2）1 分钟端到端演示脚本；3）轻量 Audit 面板；4）评测/回归脚本。"),
+        ]
+
+        inserted = 0
+        memory_ids: list[str] = []
+        for role, msg in demo_messages:
+            memory_id = str(uuid.uuid4())
+            memory_ids.append(memory_id)
+            emb = fake_embedding(msg)
+            emb_literal = "[" + ",".join(f"{x:.6f}" for x in emb) + "]"
+
+            session.execute(
+                text(
+                    """
+                    INSERT INTO memories (id, namespace, session_id, role, text, metadata, importance, embedding)
+                    VALUES (:id, :namespace, :session_id, :role, :text, CAST(:metadata AS jsonb), :importance, :embedding)
+                    """
+                ),
+                {
+                    "id": memory_id,
+                    "namespace": namespace,
+                    "session_id": session_id,
+                    "role": role,
+                    "text": msg,
+                    "metadata": json.dumps({"seed": True}),
+                    "importance": 0.9 if role == "user" else 0.6,
+                    "embedding": emb_literal,
+                },
+            )
+            inserted += 1
+
+        session.execute(
+            text(
+                """
+                INSERT INTO audit_logs (id, namespace, session_id, event_type, details)
+                VALUES (:id, :namespace, :session_id, :event_type, CAST(:details AS jsonb))
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "namespace": namespace,
+                "session_id": session_id,
+                "event_type": "DEV_SEED",
+                "details": json.dumps({"inserted": inserted, "reset": reset}),
+            },
+        )
+        session.commit()
+
+        return {
+            "ok": True,
+            "namespace": namespace,
+            "session_id": session_id,
+            "inserted": inserted,
+            "memory_ids": memory_ids,
+        }
+
     @app.post("/v1/query", response_model=QueryResponse)
     def query(
         req: QueryRequest,

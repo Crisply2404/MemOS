@@ -319,3 +319,70 @@
   - `GET /v1/ops/pipeline`
   - `GET /v1/ops/audit?limit=50`
   - 可选：`GET /v1/ops/audit?namespace=Project_X&session_id=...`
+
+---
+
+## 14. 前端 Pipeline 切真数据（对接 /v1/ops/pipeline）
+
+**做了什么**
+
+- 把 `MemoryPipeline` 页面从“定时造假数据”改成轮询后端真实数据：`GET /v1/ops/pipeline`。
+- 左侧 Ingestion Stream 的 Pending 数量来自 condensation 队列长度（`queues[].count`）。
+- 右侧 Structured Vault 展示最近 condensation 落库记录（`recent_condensations`），并计算 token 节省（`token_original - token_condensed`）。
+
+**为什么这么做**
+
+- 这个页面是你最适合“面试现场演示”的看板：能直观看到队列是否积压、worker 是否在产出摘要、以及 token savings 是否在累计。
+
+**原理是什么**
+
+- 后端把“系统运行状态”做成 ops 接口；前端只需要定时拉取并渲染即可。
+- 这样前端不依赖 mock，也不会把演示变成“动画效果”，而是展示真实的系统行为。
+
+**如何验证**
+
+- 启动 compose：`docker compose up -d`
+- 启动后端：`cd server && .venv\\Scripts\\python -m uvicorn memos_server.app:create_app --factory --reload --port 8000`
+- 启动 worker：`cd server && .venv\\Scripts\\python worker.py`
+- 启动前端：`npm run dev -- --port 3000`
+- 在 RAG Debugger 发送几条较长消息触发 condensation → 打开 Pipeline 页面 → 观察 Pending 与 recent_condensations 列表变化。
+
+---
+
+## 15. 一键灌入演示数据（Seed Demo Data）
+
+**做了什么**
+
+- 新增后端接口：`POST /v1/dev/seed`
+  - 可指定 `namespace/session_id`
+  - 支持 `reset=true`：只清理该 `namespace/session_id` 下的 memories/condensations/audit_logs，再重新写入 demo 数据
+- 在前端 RAG Debugger 顶部增加按钮：`Seed Demo Data`
+  - 点一下就调用 `/v1/dev/seed`，让数据库立刻有可检索的“演示记忆”
+  - 同时提供 `New Session`，一键生成新的 sessionId，避免历史数据干扰演示
+
+**为什么这么做**
+
+- 没有预置记忆时，观众不知道该问什么；演示会变成“空系统”。
+- 一键 seed 可以把演示变成确定性流程：点一下 → 立刻可 query → 立刻能看 raw/condensed/pipeline。
+
+**原理是什么**
+
+- `dev/seed` 本质是批量执行多次“写入 memories（带 embedding）”并记录一条 `DEV_SEED` 审计事件。
+- `reset=true` 只清理指定 slice（namespace+session）而不是清空整库，避免每次演示都要重建 docker volume。
+
+**如何验证**
+
+- 启动 compose：`docker compose up -d`
+- 启动后端：`cd server && .venv\\Scripts\\python -m uvicorn memos_server.app:create_app --factory --reload --port 8000`
+- 启动 worker：`cd server && .venv\\Scripts\\python worker.py`
+- 启动前端：`npm run dev -- --port 3000`
+- 打开 RAG Debugger：点击 `Seed Demo Data`，然后问：
+  - “我踩过哪些坑？怎么解决？”
+  - “下一步要做什么？为什么？”
+  - “运行命令是什么？”
+
+**什么时候需要 docker compose down -v**
+
+- 只有当你想清空整个数据库（所有 namespace/session 的数据）时才需要。
+- 常规演示只用 `POST /v1/dev/seed?reset=true` 即可“只保留 demo slice 的数据”。
+

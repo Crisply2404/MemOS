@@ -78,6 +78,18 @@ export type QueryResponse = {
   rerank_debug: Array<{ method: string; components: Record<string, number> }>;
 };
 
+export type OpsPipelineResponse = {
+  queues: Array<{ name: string; count: number }>;
+  recent_condensations: Array<{
+    id: string;
+    namespace: string;
+    session_id: string;
+    token_original: number;
+    token_condensed: number;
+    created_at: string;
+  }>;
+};
+
 export async function ingest(req: IngestRequest): Promise<IngestResponse> {
   return requestJson<IngestResponse>('/v1/ingest', {
     method: 'POST',
@@ -89,5 +101,35 @@ export async function query(req: QueryRequest): Promise<QueryResponse> {
   return requestJson<QueryResponse>('/v1/query', {
     method: 'POST',
     body: JSON.stringify(req)
+  });
+}
+
+export async function opsPipeline(): Promise<OpsPipelineResponse> {
+  return requestJson<OpsPipelineResponse>('/v1/ops/pipeline', {
+    method: 'GET'
+  });
+}
+
+export type DevSeedResponse = {
+  ok: boolean;
+  namespace: string;
+  session_id: string;
+  inserted: number;
+  memory_ids: string[];
+};
+
+export async function devSeed(params?: {
+  namespace?: string;
+  session_id?: string;
+  reset?: boolean;
+}): Promise<DevSeedResponse> {
+  const qs = new URLSearchParams();
+  if (params?.namespace) qs.set('namespace', params.namespace);
+  if (params?.session_id) qs.set('session_id', params.session_id);
+  if (typeof params?.reset === 'boolean') qs.set('reset', String(params.reset));
+
+  const suffix = qs.toString().length > 0 ? `?${qs.toString()}` : '';
+  return requestJson<DevSeedResponse>(`/v1/dev/seed${suffix}`, {
+    method: 'POST'
   });
 }

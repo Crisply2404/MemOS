@@ -10,6 +10,9 @@ interface RagDebuggerProps {
   isProcessing: boolean;
   apiError?: string | null;
   namespace?: string;
+  sessionId?: string;
+  onSeedDemo?: () => void | Promise<void>;
+  onNewSession?: () => void;
 }
 
 export const RagDebugger: React.FC<RagDebuggerProps> = ({ 
@@ -18,7 +21,10 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
   retrievalContext,
   isProcessing,
   apiError,
-  namespace
+  namespace,
+  sessionId,
+  onSeedDemo,
+  onNewSession
 }) => {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
@@ -45,7 +51,30 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
             <div className="w-2 h-2 rounded-full bg-brand-accent animate-pulse"></div>
             <h3 className="font-semibold text-gray-200">Live Agent Interaction</h3>
           </div>
-          <Badge color="blue">Namespace: {namespace || 'Project_X'}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge color="blue">Namespace: {namespace || 'Project_X'}</Badge>
+            {sessionId && <Badge color="purple">Session: {sessionId.slice(-8)}</Badge>}
+            {onSeedDemo && (
+              <button
+                type="button"
+                onClick={onSeedDemo}
+                disabled={isProcessing}
+                className="text-xs font-mono px-2 py-1 rounded border border-gray-700 bg-black/30 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+              >
+                Seed Demo Data
+              </button>
+            )}
+            {onNewSession && (
+              <button
+                type="button"
+                onClick={onNewSession}
+                disabled={isProcessing}
+                className="text-xs font-mono px-2 py-1 rounded border border-gray-700 bg-black/30 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+              >
+                New Session
+              </button>
+            )}
+          </div>
         </div>
 
         {apiError && (
