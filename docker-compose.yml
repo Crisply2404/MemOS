@@ -1,4 +1,45 @@
 services:
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      # Internal container network addresses
+      MEMOS_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/memos
+      MEMOS_REDIS_URL: redis://redis:6379/0
+      # Ensure we do not rely on local .env in containers
+      MEMOS_LOAD_DOTENV: "0"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    command: ["python", "worker.py"]
+    environment:
+      MEMOS_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/memos
+      MEMOS_REDIS_URL: redis://redis:6379/0
+      MEMOS_LOAD_DOTENV: "0"
+    depends_on:
+      - postgres
+      - redis
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    environment:
+      # Let the browser call the API on the host-mapped port.
+      VITE_API_BASE_URL: http://127.0.0.1:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
   postgres:
     image: pgvector/pgvector:pg16
     environment:

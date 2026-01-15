@@ -16,17 +16,21 @@ import os
 import redis
 from rq import SimpleWorker, Worker
 
+from memos_server.env import init_env
+
 
 def main() -> None:
-    redis_url = os.getenv("MEMOS_REDIS_URL", "redis://localhost:6379/0")
-    conn = redis.Redis.from_url(redis_url)
+  init_env()
 
-    # RQ's default Worker uses os.fork(), which doesn't exist on Windows.
-    # On Windows we use SimpleWorker (runs jobs in-process).
-    worker_cls = SimpleWorker if os.name == "nt" else Worker
-    worker = worker_cls(["condensation"], connection=conn)
-    worker.work(with_scheduler=False)
+  redis_url = os.getenv("MEMOS_REDIS_URL", "redis://localhost:6379/0")
+  conn = redis.Redis.from_url(redis_url)
+
+  # RQ's default Worker uses os.fork(), which doesn't exist on Windows.
+  # On Windows we use SimpleWorker (runs jobs in-process).
+  worker_cls = SimpleWorker if os.name == "nt" else Worker
+  worker = worker_cls(["condensation"], connection=conn)
+  worker.work(with_scheduler=False)
 
 
 if __name__ == "__main__":
-    main()
+  main()

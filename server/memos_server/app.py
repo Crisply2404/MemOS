@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from memos_server.env import init_env
 from memos_server.api_models import (
     HealthResponse,
     IngestRequest,
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
 
     Why a factory: makes it easier to test and to configure environments.
     """
+    init_env()
 
     app = FastAPI(title="MemOS Memory Controller", version="0.1.0")
 

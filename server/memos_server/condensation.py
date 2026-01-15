@@ -47,7 +47,11 @@ def run_condensation_job(
     - Persisting the result lets the UI show token savings and lets future queries reuse it.
     """
 
+    from memos_server.env import init_env
+
     from memos_server.db import create_db
+
+    init_env()
 
     db = create_db(database_url)
     condensed = simple_condense(raw_text)

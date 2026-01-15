@@ -42,16 +42,24 @@
 4. **检索与 rerank 可解释输出**：返回每条 chunk 的来源层级、分数组成与过滤原因，支撑 Radar/RAG Debugger。
 5. **离线评测闭环**：Recall@k/MRR、Token Savings、Pollution Rate（跨 namespace 误召回率），写入 README 作为可验证成果。
 
-## Run Locally（前端）
+## Run (Docker)
 
-**Prerequisites:** Node.js
+一条命令启动全栈（Postgres + Redis + API + Worker + Web UI）：
 
-1. Install dependencies: `npm install`
-2. Run the app: `npm run dev`
+```bash
+docker compose up --build
+```
 
-## Next: Backend（规划）
+打开：
 
-建议后端目录结构：`server/`（同仓库），包含 FastAPI、Worker、迁移脚本与 `docker-compose`（Postgres + Redis）。
+- UI: http://127.0.0.1:3000
+- API: http://127.0.0.1:8000/docs
+
+停止：
+
+```bash
+docker compose down
+```
 
 ## Docs
 
