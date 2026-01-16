@@ -3,6 +3,8 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
+    command:
+      ["python", "-m", "uvicorn", "memos_server.app:create_app", "--factory", "--reload", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       # Internal container network addresses
       MEMOS_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/memos
@@ -11,6 +13,9 @@ services:
       MEMOS_LOAD_DOTENV: "0"
     ports:
       - "8000:8000"
+    volumes:
+      # Mount backend source for live-reload in dev.
+      - ./server:/app
     depends_on:
       - postgres
       - redis
@@ -24,6 +29,8 @@ services:
       MEMOS_DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/memos
       MEMOS_REDIS_URL: redis://redis:6379/0
       MEMOS_LOAD_DOTENV: "0"
+    volumes:
+      - ./server:/app
     depends_on:
       - postgres
       - redis
@@ -35,8 +42,17 @@ services:
     environment:
       # Let the browser call the API on the host-mapped port.
       VITE_API_BASE_URL: http://127.0.0.1:8000
+      # On Windows/macOS Docker Desktop, filesystem events often don't propagate reliably into containers.
+      # Polling makes Vite hot reload consistent at the cost of a bit more CPU.
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "250"
     ports:
       - "3000:3000"
+    volumes:
+      # Mount source for live reload.
+      - .:/app
+      # Keep container node_modules isolated from the host.
+      - /app/node_modules
     depends_on:
       - api
 

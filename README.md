@@ -50,6 +50,18 @@
 docker compose up --build
 ```
 
+开发时的热重载（前端）
+
+- `web` 容器运行的是 `vite dev`，并且通过 bind mount 挂载源码目录，因此你在本机编辑 `*.tsx/*.ts` 后，浏览器会自动热更新。
+- Windows + Docker Desktop 场景下文件变更通知可能不稳定，本项目已启用 polling（牺牲少量 CPU 换稳定 HMR）。
+
+开发时的热重载（后端 API / Worker）
+
+- `api` 容器以 `uvicorn --reload` 运行，并挂载了 `./server` 源码目录：你修改 `server/memos_server/*.py` 后，API 会自动重载。
+- `worker` 容器同样挂载了 `./server`：
+	- 修改任务处理函数（例如 condensation 逻辑）后，通常对“后续新任务”会生效；
+	- 如果你修改了 worker 进程自身的启动/初始化逻辑，建议执行 `docker compose restart worker` 以确保进程完全加载新代码。
+
 打开：
 
 - UI: http://127.0.0.1:3000
@@ -60,6 +72,62 @@ docker compose up --build
 ```bash
 docker compose down
 ```
+
+如果你只想“停服务但保留数据卷”，用上面的 `down` 即可；如果你想彻底清空 Postgres 数据用于干净演示：
+
+```bash
+docker compose down -v
+```
+
+---
+
+## Run (Local Dev)
+
+日常开发建议本地跑（更快、更好 debug），数据库/Redis 仍用 docker 提供。
+
+1) 启动依赖（Postgres + Redis）：
+
+```bash
+docker compose up -d postgres redis
+```
+
+2) 启动后端 API（Windows PowerShell 示例）：
+
+```bash
+cd server
+.venv\Scripts\python -m uvicorn memos_server.app:create_app --factory --reload --port 8000
+```
+
+3) 启动 worker（用于 condensation）：
+
+```bash
+cd server
+.venv\Scripts\python worker.py
+```
+
+4) 启动前端：
+
+```bash
+npm run dev -- --port 3000
+```
+
+打开：
+
+- UI: http://127.0.0.1:3000
+- API: http://127.0.0.1:8000/docs
+
+---
+
+## Demo (1-minute)
+
+目标：1 分钟演示 “存记忆 -> 查记忆 -> 触发摘要 -> 省 token -> 看 pipeline/audit”。
+
+1) 打开 UI：http://127.0.0.1:3000
+2) 点击 `New Session`（保证演示隔离）
+3) 点击 `Seed Demo Data`
+4) 在 RAG Debugger 输入一个问题（示例：`我踩过哪些坑？`）触发检索与 condensation
+5) 打开 `Pipeline` 页面：观察队列与 recent condensations 更新
+6) 可选：打开 API 文档并查看审计：http://127.0.0.1:8000/docs -> `GET /v1/ops/audit`
 
 ## Docs
 

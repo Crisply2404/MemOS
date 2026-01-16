@@ -256,12 +256,18 @@ def create_app() -> FastAPI:
                        1 - (embedding <=> :q_embedding) AS score
                 FROM memories
                 WHERE namespace = :namespace
+                  AND session_id = :session_id
                   AND embedding IS NOT NULL
                 ORDER BY embedding <=> :q_embedding
                 LIMIT :k
                 """
             ),
-            {"q_embedding": emb_literal, "namespace": req.namespace, "k": req.top_k},
+            {
+                "q_embedding": emb_literal,
+                "namespace": req.namespace,
+                "session_id": req.session_id,
+                "k": req.top_k,
+            },
         ).mappings().all()
 
         chunks: list[RetrievedChunk] = []
