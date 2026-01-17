@@ -110,12 +110,13 @@
     - 5. 在 RAG Debugger 发几条较长消息触发 condensation
     - 6. 打开 Pipeline 页面：观察 Pending/Recent condensations 跟随变化
 
-- [ ] TODO 2：最小“端到端演示脚本”（1 分钟版）
+- [x] TODO 2：最小“端到端演示脚本”（1 分钟版）
 
   - 为什么：面试官最喜欢“我现在给你跑一下”。
   - 验收：README 或 docs 里有固定步骤：启动 compose → 启动 API → 启动 worker → 启动前端 → 发送 3 条长消息 → 看到省 token → 看到 pipeline/audit 数据变化。
+  - 参考：见 `README.md` 的 `Demo (1-minute)`。
 
-- [ ] （可选）一键 Seed Demo Data（用于演示）
+- [x] （可选）一键 Seed Demo Data（用于演示）
 
   - 目标：不用手动打字灌入记忆；点一下按钮即可在指定 `namespace/session_id` 下写入一组演示用 memories。
   - 验证：
@@ -125,6 +126,10 @@
   - 备注：
     - 如果只想保留 seed 数据：优先使用固定的 demo `namespace/session_id` 并用 `reset=true` 重置该 slice。
     - 只有在想清空所有历史数据时才需要 `docker compose down -v`（会清空整个数据库卷）。
+
+  - 状态说明：
+    - 后端已提供 `POST /v1/dev/seed`
+    - 前端已接入 `Seed Demo Data` 按钮（调用 `devSeed(...)`）
 
 ### P1（贴 JD 的工程化/可解释性，少量工作高收益）
 

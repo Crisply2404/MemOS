@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
     queues = create_queues(settings.redis_url)
 
     # --- Dependencies (FastAPI DI) ---
-    def get_db_session() -> Session:
+    def get_db_session():
         with Session(db.engine) as session:
             yield session
 
@@ -237,6 +237,7 @@ def create_app() -> FastAPI:
         req: QueryRequest,
         session: Session = Depends(get_db_session),
         l1_store: L1Redis = Depends(get_l1),
+        cfg: Settings = Depends(get_cfg),
         q: Queues = Depends(get_queues),
     ) -> QueryResponse:
         now = int(time.time() * 1000)
@@ -293,7 +294,9 @@ def create_app() -> FastAPI:
             memory_ids = [c.id for c in chunks]
             q.condensation.enqueue(
                 "memos_server.condensation.run_condensation_job",
-                database_url=settings.database_url,
+                # Pass the effective DB url for the current runtime.
+                # In Docker, this must point to the `postgres` service hostname, not localhost.
+                database_url=cfg.database_url,
                 namespace=req.namespace,
                 session_id=req.session_id,
                 memory_ids=memory_ids,

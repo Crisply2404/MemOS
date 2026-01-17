@@ -5,6 +5,7 @@ import { MemoryPipeline } from './components/MemoryPipeline';
 import { SemanticRadar } from './components/SemanticRadar'; // New Import
 import { RagDebugger } from './components/RagDebugger';
 import { Dashboard } from './components/Dashboard';
+import { AuditPanel } from './components/AuditPanel';
 import { generateMockMemories } from './utils/mockData';
 import { devSeed, ingest, query as queryApi } from './utils/api';
 
@@ -216,8 +217,8 @@ const App: React.FC = () => {
              <SidebarItem 
               icon={Terminal} 
               label="Audit Logs" 
-              active={false} 
-              onClick={() => {}} 
+              active={view === ViewMode.AUDIT} 
+              onClick={() => setView(ViewMode.AUDIT)} 
             />
           </div>
         </nav>
@@ -247,6 +248,7 @@ const App: React.FC = () => {
             {view === ViewMode.PIPELINE && 'Ingestion & Processing Pipeline'}
             {view === ViewMode.RADAR && 'Semantic Relevance Radar'}
             {view === ViewMode.RAG_DEBUG && 'Context Retrieval & Optimization'}
+            {view === ViewMode.AUDIT && 'Audit & Explainability'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded border border-mem-border">
@@ -292,6 +294,10 @@ const App: React.FC = () => {
                 onNewSession={handleNewSession}
                 sessionId={sessionId}
               />
+            )}
+
+            {view === ViewMode.AUDIT && (
+              <AuditPanel namespace={namespace} sessionId={sessionId} />
             )}
           </div>
         </div>

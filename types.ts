@@ -46,5 +46,6 @@ export enum ViewMode {
   PIPELINE = 'PIPELINE',
   RADAR = 'RADAR',
   RAG_DEBUG = 'RAG_DEBUG',
+  AUDIT = 'AUDIT',
   SETTINGS = 'SETTINGS'
 }

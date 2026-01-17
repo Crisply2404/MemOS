@@ -90,6 +90,19 @@ export type OpsPipelineResponse = {
   }>;
 };
 
+export type OpsAuditEvent = {
+  id: string;
+  namespace: string;
+  session_id: string;
+  event_type: string;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
+export type OpsAuditResponse = {
+  events: OpsAuditEvent[];
+};
+
 export async function ingest(req: IngestRequest): Promise<IngestResponse> {
   return requestJson<IngestResponse>('/v1/ingest', {
     method: 'POST',
@@ -106,6 +119,22 @@ export async function query(req: QueryRequest): Promise<QueryResponse> {
 
 export async function opsPipeline(): Promise<OpsPipelineResponse> {
   return requestJson<OpsPipelineResponse>('/v1/ops/pipeline', {
+    method: 'GET'
+  });
+}
+
+export async function opsAudit(params?: {
+  namespace?: string;
+  session_id?: string;
+  limit?: number;
+}): Promise<OpsAuditResponse> {
+  const qs = new URLSearchParams();
+  if (params?.namespace) qs.set('namespace', params.namespace);
+  if (params?.session_id) qs.set('session_id', params.session_id);
+  if (typeof params?.limit === 'number') qs.set('limit', String(params.limit));
+
+  const suffix = qs.toString().length > 0 ? `?${qs.toString()}` : '';
+  return requestJson<OpsAuditResponse>(`/v1/ops/audit${suffix}`, {
     method: 'GET'
   });
 }
