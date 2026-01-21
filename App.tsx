@@ -272,7 +272,7 @@ const App: React.FC = () => {
             
             {view === ViewMode.PIPELINE && (
               <div className="h-[calc(100vh-8rem)]">
-                 <MemoryPipeline />
+                 <MemoryPipeline namespace={namespace} sessionId={sessionId} />
               </div>
             )}
 

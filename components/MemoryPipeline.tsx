@@ -27,13 +27,18 @@ function safeParseTimestamp(value: string): number {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-export const MemoryPipeline: React.FC = () => {
+export const MemoryPipeline: React.FC<{ namespace?: string; sessionId?: string }> = ({
+  namespace,
+  sessionId,
+}) => {
   const [pipelineQueueCount, setPipelineQueueCount] = useState<number>(0);
   const [vaultItems, setVaultItems] = useState<ProcessedItem[]>([]);
+  const [vaultTotal, setVaultTotal] = useState<number>(0);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [activeNamespace, setActiveNamespace] = useState<string>('Project_X');
-  const [activeSessionId, setActiveSessionId] = useState<string>('');
+  const [activeNamespace, setActiveNamespace] = useState<string>(namespace || 'Project_X');
+  const [activeSessionId, setActiveSessionId] = useState<string>(sessionId || '');
+  const [vaultLimit, setVaultLimit] = useState<number>(10);
 
   const processingItem: LogItem | null = useMemo(() => {
     if (pipelineQueueCount <= 0) return null;
@@ -51,6 +56,13 @@ export const MemoryPipeline: React.FC = () => {
     return 'summarizing';
   }, [processingItem]);
 
+  // Keep the filter aligned with the currently selected session by default.
+  // If the user manually edits the filter, they can still override it.
+  useEffect(() => {
+    if (typeof namespace === 'string') setActiveNamespace(namespace);
+    if (typeof sessionId === 'string') setActiveSessionId(sessionId);
+  }, [namespace, sessionId]);
+
   useEffect(() => {
     let canceled = false;
 
@@ -62,13 +74,16 @@ export const MemoryPipeline: React.FC = () => {
         const condensationQueue = data.queues.find(q => q.name === 'condensation');
         setPipelineQueueCount(condensationQueue?.count ?? 0);
 
-        const mapped: ProcessedItem[] = data.recent_condensations
-          .filter((row) => {
-            if (activeNamespace && row.namespace !== activeNamespace) return false;
-            if (activeSessionId && row.session_id !== activeSessionId) return false;
-            return true;
-          })
-          .slice(0, 10)
+        const filtered = data.recent_condensations.filter((row) => {
+          if (activeNamespace && row.namespace !== activeNamespace) return false;
+          if (activeSessionId && row.session_id !== activeSessionId) return false;
+          return true;
+        });
+
+        setVaultTotal(filtered.length);
+
+        const mapped: ProcessedItem[] = filtered
+          .slice(0, Math.max(1, Math.min(50, vaultLimit)))
           .map((row) => {
           const original = row.token_original;
           const condensed = row.token_condensed;
@@ -100,7 +115,7 @@ export const MemoryPipeline: React.FC = () => {
       canceled = true;
       clearInterval(interval);
     };
-  }, [activeNamespace, activeSessionId]);
+  }, [activeNamespace, activeSessionId, vaultLimit]);
 
   const ingestionQueue: LogItem[] = useMemo(() => {
     const pending = Math.min(pipelineQueueCount, 5);
@@ -170,6 +185,18 @@ export const MemoryPipeline: React.FC = () => {
           >
             Clear filter
           </button>
+
+          <label className="flex items-center gap-2 bg-black/20 border border-white/10 rounded px-2 py-1">
+            <span className="text-gray-400 font-mono text-[10px]">SHOW</span>
+            <input
+              className="bg-transparent outline-none text-gray-200 font-mono text-[12px] w-14"
+              type="number"
+              min={1}
+              max={50}
+              value={vaultLimit}
+              onChange={(e) => setVaultLimit(Math.max(1, Math.min(50, Number(e.target.value) || 10)))}
+            />
+          </label>
         </div>
       </div>
 
@@ -321,7 +348,7 @@ export const MemoryPipeline: React.FC = () => {
               <Archive size={16} /> Structured Vault
             </h3>
             <span className="text-xs font-mono bg-black/30 px-2 py-1 rounded text-emerald-300">
-               {vaultItems.length} Stored
+               {vaultItems.length} / {vaultTotal} Shown
             </span>
           </div>
 

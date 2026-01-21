@@ -12,11 +12,9 @@ type MemoryCard = {
   // v2 (generic)
   risks?: string[];
   actions?: string[];
-  identifiers?: string[];
   // v1 (legacy aliases)
   pitfalls?: string[];
   commands?: string[];
-  ports?: string[];
   raw_excerpt?: string;
 };
 
@@ -63,14 +61,11 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
     : null;
 
   const risks = (memoryCard?.risks && memoryCard.risks.length > 0)
-    ? memoryCard.risks
+      ? memoryCard.risks
     : (memoryCard?.pitfalls || []);
   const actions = (memoryCard?.actions && memoryCard.actions.length > 0)
     ? memoryCard.actions
     : (memoryCard?.commands || []);
-  const identifiers = (memoryCard?.identifiers && memoryCard.identifiers.length > 0)
-    ? memoryCard.identifiers
-    : (memoryCard?.ports || []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -261,21 +256,16 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
                              </div>
 
                              <div className="bg-black/20 border border-mem-border rounded-lg p-3">
-                               <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-2">Identifiers</div>
-                               {(identifiers && identifiers.length > 0) ? (
-                                 <div className="flex flex-wrap gap-2">
-                                   {identifiers.slice(0, 12).map((p) => (
-                                     <span
-                                       key={p}
-                                       className="px-2 py-1 rounded border border-gray-700 bg-black/30 text-gray-200 text-[11px] font-mono"
-                                     >
-                                       {p}
-                                     </span>
-                                   ))}
-                                 </div>
-                               ) : (
-                                 <div className="text-gray-500 font-sans text-xs">(none detected)</div>
-                               )}
+                               <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-2">Core Buckets</div>
+                               <div className="flex flex-wrap gap-2">
+                                 <span className={`px-2 py-1 rounded border border-gray-700 bg-black/30 text-[11px] font-mono ${memoryCard.facts && memoryCard.facts.length > 0 ? 'text-emerald-200' : 'text-gray-500'}`}>facts</span>
+                                 <span className={`px-2 py-1 rounded border border-gray-700 bg-black/30 text-[11px] font-mono ${memoryCard.preferences && memoryCard.preferences.length > 0 ? 'text-emerald-200' : 'text-gray-500'}`}>preferences</span>
+                                 <span className={`px-2 py-1 rounded border border-gray-700 bg-black/30 text-[11px] font-mono ${memoryCard.constraints && memoryCard.constraints.length > 0 ? 'text-emerald-200' : 'text-gray-500'}`}>constraints</span>
+                                 <span className={`px-2 py-1 rounded border border-gray-700 bg-black/30 text-[11px] font-mono ${memoryCard.decisions && memoryCard.decisions.length > 0 ? 'text-emerald-200' : 'text-gray-500'}`}>decisions</span>
+                               </div>
+                               <div className="mt-2 text-[10px] text-gray-500 font-mono">
+                                 Green = present in card
+                               </div>
                              </div>
                            </div>
 

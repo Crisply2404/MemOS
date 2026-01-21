@@ -58,19 +58,6 @@ def structured_condense(raw_text: str) -> str:
         if re.match(r"^(docker|git|npm|pnpm|yarn|python|pip|uvicorn|curl)\b", s):
             actions.append(s)
 
-    identifiers = sorted(
-        {
-            m.group(0)
-            for m in re.finditer(r"\b(\d{2,5})\b", text_value)
-            if 1 <= int(m.group(0)) <= 65535
-        }
-    )
-    # Keep the most demo-relevant identifiers if present.
-    identifiers = [p for p in identifiers if p in {"3000", "5432", "6379", "8000"}] + [
-        p for p in identifiers if p not in {"3000", "5432", "6379", "8000"}
-    ]
-    identifiers = identifiers[:12]
-
     risks: list[str] = []
     lowered = text_value.lower()
     if "cors" in lowered:
@@ -88,11 +75,9 @@ def structured_condense(raw_text: str) -> str:
         "decisions": [],
         "risks": risks,
         "actions": actions[:20],
-        "identifiers": identifiers,
         # Backwards-compatible aliases for older UI / stored rows.
         "pitfalls": risks,
         "commands": actions[:20],
-        "ports": identifiers,
         "raw_excerpt": simple_condense(text_value, max_chars=360),
     }
 

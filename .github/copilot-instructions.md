@@ -1,84 +1,48 @@
-# Copilot Instructions — MemOS 工作流（必须遵守）
+# MemOS — Copilot instructions
 
-本文件定义本仓库的协作工作流：**日志同步、Todo 跟踪、Commit 节奏**。后续每次修改代码或推进里程碑时，必须自动执行并更新相关文件。
+Use these notes to be productive in this repo. Keep guidance factual (based on files in this workspace), and keep commit messages plain-language.
 
----
+## Big picture (service boundaries)
 
-## 1) 日志同步（必须）
+- Frontend: Vite + React dashboard in `/` and `components/`.
+- Backend: FastAPI “Memory Controller” in `server/memos_server/`.
+- Storage: Redis = L1 scratchpad + RQ queue; Postgres+pgvector = L2 semantic store + audit + condensations.
+- Async: `server/worker.py` runs RQ worker (condensation jobs).
 
-每完成一个“可验证的阶段性成果”（里程碑），必须同步更新：
+Data flow:
 
-- `PROJECT_LOG.md`
-  - 位置：`docs/PROJECT_LOG.md`
-  - 追加一节：**做了什么 / 为什么这么做 / 原理是什么 / 当前状态 / 如何验证**。
-  - 语言：小白可读，避免堆术语。
+- UI -> `POST /v1/ingest` writes L1 (Redis window) + L2 (Postgres).
+- UI -> `POST /v1/query` reads L1 + vector-searches L2 and returns `raw_chunks` + `condensed_summary`.
+- If no persisted condensation exists, `/v1/query` enqueues a condensation job; the worker persists a memory-card summary into `condensations`.
 
-- `ROADMAP_TODO.md`
-  - 位置：`docs/ROADMAP_TODO.md`
-  - 将对应步骤从 `[ ]` 更新为 `[x]`。
-  - 补充“如何验证”的命令或操作路径（例如打开 `http://localhost:8000/docs`）。
+## Key files
 
-> 任何代码改动如果影响接口或运行方式，同步更新以上两份文档。
+- API routes + behavior: `server/memos_server/app.py`
+- Condensation schema + worker job: `server/memos_server/condensation.py`
+- Runtime config: `server/memos_server/settings.py` (env prefix `MEMOS_`)
+- Queue wiring: `server/memos_server/queue.py`, worker entrypoint: `server/worker.py`
+- UI RAG view (renders structured cards): `components/RagDebugger.tsx`
+- Ops views: `components/MemoryPipeline.tsx`, `components/AuditPanel.tsx`
 
----
+## Local dev workflows (Windows)
 
-## 2) Todo 跟踪（必须）
+- Deps (Postgres+Redis): `docker compose up -d postgres redis`
+- Backend API: `cd server; .venv\Scripts\python -m uvicorn memos_server.app:create_app --factory --reload --port 8000`
+- Worker (Windows uses RQ SimpleWorker): `cd server; .venv\Scripts\python worker.py`
+- Frontend: `npm run dev -- --port 3000`
 
-使用会话内 Todo 列表作为执行顺序；要求：
+## Conventions / gotchas
 
-- 一次只允许一个任务处于 in-progress。
-- 完成一个任务后，立刻标记完成，并将下一个任务标记为 in-progress。
-- 如果中途发现任务需要拆分/合并，先更新 Todo 列表，再继续。
+- Avoid “localhost” confusion: defaults prefer `127.0.0.1` for local dev.
+- Condensation jobs should not trust stale connection URLs embedded in queued jobs; resolve from runtime settings.
+- UI defaults to a single namespace (`Project_X`) and uses session IDs like `web-<uuid>`; Pipeline should default to the current session.
 
-同时：
+## Docs to keep in sync
 
-- `docs/ROADMAP_TODO.md` 必须保持“与当前进度一致”。
-- 任何新增的关键步骤都要落入 `ROADMAP_TODO.md`（可验证的小步）。
+- Record milestones and verification steps in `docs/PROJECT_LOG.md`.
+- Keep `docs/ROADMAP_TODO.md` checkboxes aligned with reality.
 
----
+## Commit messages
 
-## 3) Commit 节奏与提醒（必须）
-
-原则：以“一个可运行/可演示/可回滚的里程碑”为粒度 commit。
-
-### 3.1 什么时候应该 commit
-
-出现以下情况，必须提醒用户进行 commit（或用户要求时帮忙准备命令）：
-
-- 新增后端/前端的一个完整能力闭环（例如：`ingest/query` 真存真查；`worker` 真生成摘要）。
-- 新增或更改 API 契约，且前端/后端已联调通过。
-- 引入基础设施变化（例如 docker-compose、数据库 schema）并验证可启动。
-
-### 3.2 推荐的 commit message 模板
-
-- `feat: ...` 新功能（大多数里程碑用这个）
-- `fix: ...` 修 bug
-- `docs: ...` 仅文档
-- `chore: ...` 依赖/工具/杂项
-
-message 需包含关键信息，例如：
-
-- `feat: backend MVP with Redis L1 + pgvector L2 (ingest/query)`
-- `feat: add RQ condensation worker`
-- `feat: wire frontend to backend API`
-
-补充约束（避免黑话）：
-
-- commit message 必须使用“新读者可理解”的自然语言。
-- 不要在 git 历史里写内部代号/黑话（例如：`E1`、`P0`、`TODO5`）。
-- 如果需要表达阶段，可以写具体产出而不是代号，例如：
-  - 用 `feat: structured memory card condensation + UI rendering`，不要用 `feat: E1`。
-
-### 3.3 预报提醒
-
-在推进到下一里程碑前，提前告诉用户“下一次建议 commit 的节点”和建议 message。
-
----
-
-## 4) 解释风格（必须）
-
-用户偏小白解释：
-
-- 每一步必须解释：**在干什么、为什么、原理是什么**。
-- 先给“类比/直觉”，再给“工程解释”。
-- 避免一次抛出大量英文术语；必要时给 1 句话定义。
+- Use plain-language outcomes; avoid internal shorthand (no `E1`, `P0`, `TODO5`).
+- Prefer: `feat: structured memory card condensation + UI rendering`.

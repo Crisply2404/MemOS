@@ -147,7 +147,7 @@
 
 ### P2（让“记忆治理”更像项目描述里的样子）
 
-- [ ] TODO 5：把 condensation 从“截断”升级为“结构化摘要”（或至少“关键句优先”）
+- [x] TODO 5：把 condensation 从“截断”升级为“结构化摘要”（或至少“关键句优先”）
 
   - 为什么：结构化摘要能更好地沉淀“偏好/事实/任务/约束”，更像真实 Memory Controller。
   - 验收：`condensed_summary` 变成固定结构（比如 JSON 或带小标题文本），或至少能稳定保留“踩坑/原因/解决/命令/端口”等关键信息。
@@ -164,7 +164,7 @@
 
 ### A. Condensation（业界做法：结构化 + 可复用）
 
-- [ ] A1：结构化摘要 schema（Memory Card）
+- [x] A1：结构化摘要 schema（Memory Card）
 
   - 目标：condensation 输出固定结构，而不是一段截断文本。
   - 建议字段：
@@ -172,9 +172,10 @@
     - `preferences[]`（用户偏好）
     - `constraints[]`（约束/规则）
     - `decisions[]`（决策）
-    - `pitfalls[]`（踩坑/错误/原因/解决）
-    - `commands[]`（关键命令/端口/配置）
-  - 验收：同一 session 的 `condensed_summary` 里能稳定出现 “5432/postgres/password/CORS” 相关 pitfall，并能展示为条目。
+    - `risks[]`（踩坑/错误/原因/解决）
+    - `actions[]`（关键命令/操作步骤）
+  - 备注：当前实现支持版本化 schema；UI 会渲染结构化字段，旧数据会被兼容展示。
+  - 验收：同一 session 的 `condensed_summary` 里能稳定出现 “5432/postgres/password/CORS” 相关条目，并能展示为列表/标签。
 
 - [ ] A2：condensation 版本化与可回放
 

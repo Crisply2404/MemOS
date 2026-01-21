@@ -223,7 +223,7 @@
   - `server/worker.py`：启动 worker，监听并执行后台任务
 - 增加 condensation 逻辑与数据库落盘：
   - `server/memos_server/condensation.py`：
-    - 生成“简易摘要”（MVP 先用截断，后续可换 LLM）
+    - 生成“结构化摘要（Memory Card）”（MVP 先用规则/启发式，后续可换 LLM）
     - 估算 token（粗略用字符数/4）
     - 把摘要与 token 对照写入 `condensations` 表
 - 更新 `POST /v1/query` 行为：
