@@ -294,9 +294,6 @@ def create_app() -> FastAPI:
             memory_ids = [c.id for c in chunks]
             q.condensation.enqueue(
                 "memos_server.condensation.run_condensation_job",
-                # Pass the effective DB url for the current runtime.
-                # In Docker, this must point to the `postgres` service hostname, not localhost.
-                database_url=cfg.database_url,
                 namespace=req.namespace,
                 session_id=req.session_id,
                 memory_ids=memory_ids,

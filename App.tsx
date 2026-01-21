@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Brain, Microscope, Settings, Terminal, Shield, Layers, Radar } from 'lucide-react';
-import { ViewMode, MemoryNode, ChatMessage, RetrievalContext, SystemStats } from './types';
-import { MemoryPipeline } from './components/MemoryPipeline';
-import { SemanticRadar } from './components/SemanticRadar'; // New Import
-import { RagDebugger } from './components/RagDebugger';
-import { Dashboard } from './components/Dashboard';
+import { Brain, Layers, LayoutDashboard, Microscope, Radar, Settings, Shield, Terminal } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { AuditPanel } from './components/AuditPanel';
-import { generateMockMemories } from './utils/mockData';
+import { Dashboard } from './components/Dashboard';
+import { MemoryPipeline } from './components/MemoryPipeline';
+import { RagDebugger } from './components/RagDebugger';
+import { SemanticRadar } from './components/SemanticRadar'; // New Import
+import { ChatMessage, MemoryNode, RetrievalContext, SystemStats, ViewMode } from './types';
 import { devSeed, ingest, query as queryApi } from './utils/api';
+import { generateMockMemories } from './utils/mockData';
 
 const SidebarItem = ({ 
   icon: Icon, 

@@ -16,11 +16,14 @@ class Settings(BaseSettings):
     environment: str = "dev"
 
     # Postgres connection string, e.g.:
-    # postgresql+psycopg://postgres:postgres@localhost:5432/memos
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/memos"
+    # postgresql+psycopg://postgres:postgres@127.0.0.1:5432/memos
+    # NOTE: Defaulting to 127.0.0.1 (not localhost) avoids IPv6 resolution surprises
+    # on some Windows setups.
+    database_url: str = "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/memos"
 
     # Redis connection string
-    redis_url: str = "redis://localhost:6379/0"
+    # NOTE: Same rationale as database_url.
+    redis_url: str = "redis://127.0.0.1:6379/0"
 
     # L1 session window size
     l1_window_size: int = 20

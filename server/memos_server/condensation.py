@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+import json
+import re
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -32,9 +34,74 @@ def simple_condense(text_value: str, max_chars: int = 280) -> str:
     return value[:max_chars].rstrip() + "..."
 
 
+def structured_condense(raw_text: str) -> str:
+    """Produce a lightweight, deterministic 'memory card' summary.
+
+    Goal (TODO5): upgrade from truncation to a stable structure that preserves
+    key info like pitfalls, causes, fixes, commands, and ports.
+
+    Notes:
+    - No LLMs here: keep it reproducible for demos and easy to test.
+    - Output is JSON so the frontend can later render it as sections.
+    """
+
+    text_value = raw_text.strip()
+
+    # Heuristics: extract common "action-like" lines and numeric identifiers.
+    actions: list[str] = []
+    for line in text_value.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("`") and s.endswith("`"):
+            s = s.strip("`").strip()
+        if re.match(r"^(docker|git|npm|pnpm|yarn|python|pip|uvicorn|curl)\b", s):
+            actions.append(s)
+
+    identifiers = sorted(
+        {
+            m.group(0)
+            for m in re.finditer(r"\b(\d{2,5})\b", text_value)
+            if 1 <= int(m.group(0)) <= 65535
+        }
+    )
+    # Keep the most demo-relevant identifiers if present.
+    identifiers = [p for p in identifiers if p in {"3000", "5432", "6379", "8000"}] + [
+        p for p in identifiers if p not in {"3000", "5432", "6379", "8000"}
+    ]
+    identifiers = identifiers[:12]
+
+    risks: list[str] = []
+    lowered = text_value.lower()
+    if "cors" in lowered:
+        risks.append("CORS issues in local dev")
+    if "connection refused" in lowered or "could not connect" in lowered:
+        risks.append("DB/Redis connection refused")
+    if "localhost" in lowered or "127.0.0.1" in lowered:
+        risks.append("Container vs host networking mismatch (localhost)")
+
+    card = {
+        "schema": "memos.memory_card.v2",
+        "facts": [],
+        "preferences": [],
+        "constraints": [],
+        "decisions": [],
+        "risks": risks,
+        "actions": actions[:20],
+        "identifiers": identifiers,
+        # Backwards-compatible aliases for older UI / stored rows.
+        "pitfalls": risks,
+        "commands": actions[:20],
+        "ports": identifiers,
+        "raw_excerpt": simple_condense(text_value, max_chars=360),
+    }
+
+    return json.dumps(card, ensure_ascii=True)
+
+
 def run_condensation_job(
     *,
-    database_url: str,
+    database_url: str | None = None,
     namespace: str,
     session_id: str,
     memory_ids: list[str],
@@ -50,11 +117,28 @@ def run_condensation_job(
     from memos_server.env import init_env
 
     from memos_server.db import create_db
+    from memos_server.settings import get_settings
 
     init_env()
 
-    db = create_db(database_url)
-    condensed = simple_condense(raw_text)
+    # IMPORTANT: Don't rely on potentially stale/incorrect URLs embedded in queued jobs.
+    # The effective runtime configuration should come from the current environment
+    # (e.g. MEMOS_DATABASE_URL / MEMOS_REDIS_URL).
+    #
+    # We keep `database_url` as an optional argument for backwards compatibility with
+    # already-enqueued jobs, but we prefer the current settings.
+    settings = get_settings()
+    effective_db_url = settings.database_url
+    if database_url and database_url != effective_db_url:
+        # Emit a lightweight warning to make misalignment obvious during demos.
+        print(
+            "[worker] warning: job database_url differs from runtime settings; "
+            f"job={database_url!r} runtime={effective_db_url!r} (using runtime)"
+        )
+
+    db = create_db(effective_db_url)
+    # TODO5: structured, deterministic condensation (no LLM yet).
+    condensed = structured_condense(raw_text)
     token_original = estimate_tokens(raw_text)
     token_condensed = estimate_tokens(condensed)
 

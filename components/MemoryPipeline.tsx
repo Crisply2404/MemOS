@@ -32,6 +32,8 @@ export const MemoryPipeline: React.FC = () => {
   const [vaultItems, setVaultItems] = useState<ProcessedItem[]>([]);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [activeNamespace, setActiveNamespace] = useState<string>('Project_X');
+  const [activeSessionId, setActiveSessionId] = useState<string>('');
 
   const processingItem: LogItem | null = useMemo(() => {
     if (pipelineQueueCount <= 0) return null;
@@ -60,7 +62,14 @@ export const MemoryPipeline: React.FC = () => {
         const condensationQueue = data.queues.find(q => q.name === 'condensation');
         setPipelineQueueCount(condensationQueue?.count ?? 0);
 
-        const mapped: ProcessedItem[] = data.recent_condensations.slice(0, 10).map((row) => {
+        const mapped: ProcessedItem[] = data.recent_condensations
+          .filter((row) => {
+            if (activeNamespace && row.namespace !== activeNamespace) return false;
+            if (activeSessionId && row.session_id !== activeSessionId) return false;
+            return true;
+          })
+          .slice(0, 10)
+          .map((row) => {
           const original = row.token_original;
           const condensed = row.token_condensed;
           const saved = Math.max(0, original - condensed);
@@ -91,7 +100,7 @@ export const MemoryPipeline: React.FC = () => {
       canceled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [activeNamespace, activeSessionId]);
 
   const ingestionQueue: LogItem[] = useMemo(() => {
     const pending = Math.min(pipelineQueueCount, 5);
@@ -124,6 +133,43 @@ export const MemoryPipeline: React.FC = () => {
               <div className="w-2 h-2 bg-emerald-500 rounded-full" />
               Vault Online
            </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-2 lg:items-center lg:justify-between">
+        <div className="text-[10px] text-gray-500 font-mono">
+          Showing Structured Vault for current context (filtering recent condensations)
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 text-xs">
+          <label className="flex items-center gap-2 bg-black/20 border border-white/10 rounded px-2 py-1">
+            <span className="text-gray-400 font-mono text-[10px]">NAMESPACE</span>
+            <input
+              className="bg-transparent outline-none text-gray-200 font-mono text-[12px] w-40"
+              value={activeNamespace}
+              onChange={(e) => setActiveNamespace(e.target.value)}
+              placeholder="Project_X"
+            />
+          </label>
+          <label className="flex items-center gap-2 bg-black/20 border border-white/10 rounded px-2 py-1">
+            <span className="text-gray-400 font-mono text-[10px]">SESSION</span>
+            <input
+              className="bg-transparent outline-none text-gray-200 font-mono text-[12px] w-64"
+              value={activeSessionId}
+              onChange={(e) => setActiveSessionId(e.target.value)}
+              placeholder="(blank = any session)"
+            />
+          </label>
+          <button
+            className="bg-black/20 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono text-[11px] hover:bg-black/30"
+            onClick={() => {
+              setActiveNamespace('');
+              setActiveSessionId('');
+            }}
+            type="button"
+            title="Show recent condensations across all contexts"
+          >
+            Clear filter
+          </button>
         </div>
       </div>
 

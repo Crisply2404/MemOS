@@ -62,7 +62,7 @@
     - 第一次 `query` 会 enqueue 任务，因此 worker 会打印“Job OK”。
     - 之后再次 `query` 如果复用了最新摘要（无需重新生成），worker 可能不再打印任何内容。
 
-- [ ] 增加 `/v1/ops/pipeline` 与 `/v1/ops/audit`
+- [x] 增加 `/v1/ops/pipeline` 与 `/v1/ops/audit`
   - 目标：让前端 Pipeline/Audit 页面能拉到真实数据。
   - 验证：请求能返回队列长度、最近任务、最近审计事件。
 
@@ -72,6 +72,7 @@
     - 3. 调用 `GET /v1/ops/pipeline`：能看到 `queues[0].count`（condensation 队列长度）和 `recent_condensations`（最近摘要落库）。
     - 4. 调用 `GET /v1/ops/audit?limit=50`：能看到最近的 `INGEST/QUERY/CONDENSATION` 事件。
     - 5. 可选过滤：`GET /v1/ops/audit?namespace=Project_X&session_id=...`
+  - 备注：前端已接入（Pipeline + Audit Logs），并且提供了 `scripts/verify_demo.ps1` 做 API 级别的端到端自检。
 
 ---
 
@@ -133,10 +134,11 @@
 
 ### P1（贴 JD 的工程化/可解释性，少量工作高收益）
 
-- [ ] TODO 3：前端加一个轻量 Audit 面板（不必做完整页面）
+- [x] TODO 3：前端加一个轻量 Audit 面板（不必做完整页面）
 
   - 为什么：回答“系统做了什么决策、怎么排查”的追问。
   - 验收：UI 能显示最近 20 条 `INGEST/QUERY/CONDENSATION` 事件（接 `/v1/ops/audit`），支持按 session 过滤。
+  - 验证：打开前端侧边栏 `Audit Logs`，点 `Refresh`，能看到事件表格；勾选/输入 session 过滤后事件数量变化。
 
 - [ ] TODO 4：评测/回归脚本（本地可跑，不用 CI 也行）
 
@@ -149,6 +151,7 @@
 
   - 为什么：结构化摘要能更好地沉淀“偏好/事实/任务/约束”，更像真实 Memory Controller。
   - 验收：`condensed_summary` 变成固定结构（比如 JSON 或带小标题文本），或至少能稳定保留“踩坑/原因/解决/命令/端口”等关键信息。
+  - 实现提示：当前建议先用“规则/启发式”的可复现结构化（不接 LLM），后续再替换为 LLM 版。
 
 - [ ] TODO 6：Namespace/Session 的“演示隔离”功能（Reset Session）
 

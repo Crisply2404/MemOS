@@ -1,5 +1,5 @@
+import { AlertTriangle, Filter, RefreshCw } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, RefreshCw, Filter } from 'lucide-react';
 import { opsAudit, OpsAuditEvent } from '../utils/api';
 
 function formatTs(iso: string): string {
