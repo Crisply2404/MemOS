@@ -62,6 +62,13 @@ message 需包含关键信息，例如：
 - `feat: add RQ condensation worker`
 - `feat: wire frontend to backend API`
 
+补充约束（避免黑话）：
+
+- commit message 必须使用“新读者可理解”的自然语言。
+- 不要在 git 历史里写内部代号/黑话（例如：`E1`、`P0`、`TODO5`）。
+- 如果需要表达阶段，可以写具体产出而不是代号，例如：
+  - 用 `feat: structured memory card condensation + UI rendering`，不要用 `feat: E1`。
+
 ### 3.3 预报提醒
 
 在推进到下一里程碑前，提前告诉用户“下一次建议 commit 的节点”和建议 message。
