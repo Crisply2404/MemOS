@@ -162,3 +162,34 @@ export async function devSeed(params?: {
     method: 'POST'
   });
 }
+
+export type ResetSessionRequest = {
+  namespace: string;
+  session_id: string;
+  confirm: boolean;
+  dry_run?: boolean;
+  clear_audit?: boolean;
+};
+
+export type ResetSessionResponse = {
+  ok: boolean;
+  namespace: string;
+  session_id: string;
+  reset_at: string;
+  deleted_counts: {
+    redis_keys: number;
+    memories: number;
+    condensations: number;
+    audit: number;
+  };
+};
+
+export async function resetSession(req: ResetSessionRequest): Promise<ResetSessionResponse> {
+  return requestJson<ResetSessionResponse>('/v1/sessions/reset', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...req,
+      dry_run: req.dry_run ?? false
+    })
+  });
+}

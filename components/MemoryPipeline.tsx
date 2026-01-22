@@ -1,8 +1,8 @@
+import { AlertCircle, Archive, ArrowRight, CheckCircle2, Layers, RefreshCw, Tag, Zap } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Zap, Tag, Layers, RefreshCw, Archive, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { MemoryTier } from '../types';
-import { Badge } from './ui/Card';
 import { opsPipeline } from '../utils/api';
+import { Badge } from './ui/Card';
 
 interface LogItem {
   id: string;

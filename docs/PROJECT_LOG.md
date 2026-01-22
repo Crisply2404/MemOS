@@ -386,3 +386,123 @@
 - 只有当你想清空整个数据库（所有 namespace/session 的数据）时才需要。
 - 常规演示只用 `POST /v1/dev/seed?reset=true` 即可“只保留 demo slice 的数据”。
 
+---
+
+## 16. 增加 Ops 端点 + CORS（让前端能拉真实运维数据）
+
+**做了什么**
+
+- 增加运维/观测接口：
+  - `GET /v1/ops/pipeline`：队列长度 + 最近 condensation 落库记录。
+  - `GET /v1/ops/audit`：审计事件列表（支持 `namespace/session_id/limit` 过滤）。
+- 配置 CORS，允许本地前端（Vite dev server）直接从浏览器请求后端（避免被浏览器拦截）。
+
+**为什么这么做**
+
+- 没有 ops 端点时，前端只能“造数据”，演示缺乏可信度。
+- 没有 CORS 时，即使后端接口存在，浏览器也会因为跨域策略拒绝请求，导致 UI 看起来像“接口坏了”。
+
+**原理是什么（小白版）**
+
+- `ops/*` 就像“运维看板 API”：把队列积压、最近产出、系统做过的动作（审计）直接暴露给 UI。
+- CORS 是浏览器安全策略：前端网页从 `http://127.0.0.1:3000` 去请求 `http://127.0.0.1:8000` 属于跨域，后端必须显式允许。
+
+**如何验证**
+
+- 启动后端后打开 Swagger：`http://127.0.0.1:8000/docs`
+- 调用：
+  - `GET /v1/ops/pipeline`
+  - `GET /v1/ops/audit?limit=50`
+- 启动前端：`npm run dev -- --port 3000`
+  - 打开浏览器 DevTools Network：应当能看到请求成功（不是 CORS error）。
+
+---
+
+## 17. 前端审计面板 + 一键验收脚本（把“可解释性”做成可演示能力）
+
+**做了什么**
+
+- 前端增加一个 Audit Logs 视图：拉取 `GET /v1/ops/audit` 并以表格形式展示。
+- 增加 API 级别的“端到端自检/验收脚本”，让演示可重复：
+  - 自动触发 ingest/query
+  - 再读取 ops/audit、ops/pipeline
+  - 用输出证明系统真的在写审计、真的在跑队列/落库
+
+**为什么这么做**
+
+- 面试官问“怎么排查/怎么解释系统决策”时，审计面板是最直观的答案。
+- 纯手工点 UI 很容易漏步骤；脚本让你在任何机器上 1 分钟复现演示闭环。
+
+**原理是什么（小白版）**
+
+- 后端每次 ingest/query/condensation 都会写一条 `audit_logs`；前端只是把它读出来并展示。
+- 验收脚本就是把 Swagger 的人工步骤自动化：用固定输入跑一遍，然后打印关键结果。
+
+**如何验证**
+
+- 打开 UI -> `Audit Logs`：点击 `Refresh`，应当能看到 `INGEST/QUERY/...` 事件。
+- 或直接用脚本跑一遍（仓库里现有的 verify 类脚本）：
+  - 运行后应当能看到 audit 事件数量变化，以及 pipeline/audit 的返回结构。
+
+---
+
+## 18. 结构化摘要升级：Memory Card（压缩结果变“可读的产品卡片”）
+
+**做了什么**
+
+- 把 condensation 的输出从“截断文本”升级为稳定的结构化 JSON（Memory Card）。
+- 前端 RAG Debugger 支持解析该 JSON，并用更像产品的方式展示（列表/分区），而不是把 JSON 当纯文本。
+
+**为什么这么做**
+
+- 演示时“省 token”只是第一步；面试官更关心：系统到底提取了哪些关键信息、未来怎么复用。
+- 结构化卡片能把“踩坑/解决方案/常用命令/约束”等信息变成可复用资产，比一段长摘要更像真实的 Memory Controller。
+
+**原理是什么（小白版）**
+
+- Worker 生成一个有固定字段的 JSON（例如 `risks[]`、`actions[]` 等）。
+- `condensed_summary` 仍然是一个字符串字段，但它的内容是 JSON 文本；前端识别到 `schema` 后按字段渲染。
+- 好处是：字段稳定、可版本化、未来可替换生成方式（规则版 -> LLM 版）但 UI 不需要大改。
+
+**如何验证**
+
+- 在同一 session 下触发一次 query 让 worker 落库摘要。
+- 再次 query：返回的 `condensed_summary` 应该以 `{` 开头，且能解析出 `schema: memos.memory_card.*`。
+- 打开 UI 的 RAG Debugger：右侧 Condensed 会显示结构化区域（例如 Risks / Actions），而不是一大段原始文本。
+
+---
+
+## 19. 观测与演示隔离：Reset Session + 审计视角（Session/Namespace/All）
+
+**做了什么**
+
+- 新增会话重置接口：`POST /v1/sessions/reset`。
+  - 必须显式 `confirm=true` 才会执行，避免误触。
+  - 支持 `dry_run=true` 先看将删除的数量。
+  - 默认清理该 session 的 L1（Redis）+ L2（Postgres 的 `memories/condensations`）。
+  - 默认不清理旧审计日志，并写入一条 `SESSION_RESET` 事件；如需彻底清理可传 `clear_audit=true`。
+- 前端把演示相关的控制入口收敛到一个菜单（Options），包括：切换 namespace、seed demo data、新建会话、重置会话。
+- Audit Logs 增加 scope 切换：
+  - Session：只看当前会话
+  - Namespace：看当前 namespace 下所有会话
+  - All：看所有 namespace（更符合 Memory-as-a-Service 视角）
+
+**为什么这么做**
+
+- 演示最怕“历史数据污染”：你以为在演示新一轮对话，实际上 UI/检索还在复用旧 session 的摘要与审计。
+- Reset Session 是“把当前会话清干净”的最直接工具；而 scope 切换能解释清楚“数据没丢，只是你切了 workspace（namespace）”。
+
+**原理是什么（小白版）**
+
+- L1 是 Redis 里按 `(namespace, session_id)` 存的滑动窗口 key；删除 key 就等于清空短期记忆。
+- L2 是 Postgres 里按 `(namespace, session_id)` 存的行；按条件 DELETE 就只会清指定会话。
+- audit 之所以默认保留：审计用于解释“系统做过什么”，清掉它会丢失最有价值的可解释信息；但仍提供 `clear_audit` 以适配极端演示场景。
+
+**如何验证**
+
+- 触发一组 ingest/query，确保 audit 有 `INGEST/QUERY`。
+- 调用 `POST /v1/sessions/reset`（confirm=true），然后：
+  - `GET /v1/ops/audit?namespace=...&session_id=...` 能看到新增的 `SESSION_RESET`。
+  - 同 session 再 query：不会复活旧的 condensation；表现为新会话从零开始。
+- 在 UI 的 Audit Logs：切换 scope 到 Namespace/All，能看到不同 namespace/会话的历史事件。
+

@@ -153,7 +153,34 @@
   - 验收：`condensed_summary` 变成固定结构（比如 JSON 或带小标题文本），或至少能稳定保留“踩坑/原因/解决/命令/端口”等关键信息。
   - 实现提示：当前建议先用“规则/启发式”的可复现结构化（不接 LLM），后续再替换为 LLM 版。
 
-- [ ] TODO 6：Namespace/Session 的“演示隔离”功能（Reset Session）
+- [x] TODO 6：Namespace/Session 的“演示隔离”功能（Reset Session API）
+
+  - 目标：给用户一个安全的“重置当前演示会话”的能力，避免历史数据污染演示；重置只影响指定 `namespace/session_id`。
+
+  - API 约定（MVP）：
+    - 在 Swagger 可见：`POST /v1/sessions/reset`
+    - 入参：`namespace`、`session_id`、`confirm`（必须显式确认，避免误触）
+    - 可选：`dry_run`（只返回将删除数量，不执行）
+    - 可选：`clear_audit`（默认 false；为 true 时会清理旧审计，但仍保留新的 `SESSION_RESET`）
+
+  - 行为（默认清理该 session 的 L1/L2，audit 默认保留并写入 reset 事件）：
+    - 清 L1（Redis）：该 session 的窗口/keys 清空
+    - 清 L2（Postgres）：删除该 session 的 `memories`、`condensations`
+    - audit：默认不删除旧审计日志，并追加一条 `SESSION_RESET` 事件
+
+  - 返回（可解释/可调试）：
+    - `deleted_counts`（memories/condensations/audit/redis_keys）
+    - `namespace/session_id`、`reset_at`
+
+  - 前端验收：
+    - RAG Debugger 或 Dashboard 提供 `Reset Session` 按钮（调用上述 API）
+    - Reset 成功后，Pipeline/Audit/RAG 视图立刻反映“新会话/无历史”的状态
+
+  - 验证步骤（可复现）：
+    - 1) ingest 几条消息 + query 触发 condensation（保证库里有 memories/condensations/audit）
+    - 2) 调用 `GET /v1/ops/audit?namespace=...&session_id=...` 观察事件数量
+    - 3) 调用 `POST /v1/sessions/reset`（带 `confirm`）
+    - 4) 再次查询 audit/pipeline，并对同 session query：旧摘要/旧审计不应复活，表现为新会话
 
 ---
 

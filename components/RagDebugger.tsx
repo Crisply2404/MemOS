@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Send, Database, Zap, ArrowRight, BrainCircuit, RefreshCw } from 'lucide-react';
-import { RetrievalContext, MemoryTier, ChatMessage } from '../types';
+import { ArrowRight, BrainCircuit, Database, RotateCcw, Send, Zap } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChatMessage, RetrievalContext } from '../types';
 import { Badge } from './ui/Card';
 
 type MemoryCard = {
@@ -40,6 +40,8 @@ interface RagDebuggerProps {
   sessionId?: string;
   onSeedDemo?: () => void | Promise<void>;
   onNewSession?: () => void;
+  onResetSession?: () => void | Promise<void>;
+  onSetNamespace?: (nextNamespace: string) => void;
 }
 
 export const RagDebugger: React.FC<RagDebuggerProps> = ({ 
@@ -51,10 +53,19 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
   namespace,
   sessionId,
   onSeedDemo,
-  onNewSession
+  onNewSession,
+  onResetSession,
+  onSetNamespace
 }) => {
   const [inputValue, setInputValue] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
+  const [showNamespaceEditor, setShowNamespaceEditor] = useState(false);
+  const [namespaceDraft, setNamespaceDraft] = useState(namespace || 'Project_X');
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setNamespaceDraft(namespace || 'Project_X');
+  }, [namespace]);
 
   const memoryCard = retrievalContext?.condensedText
     ? tryParseMemoryCard(retrievalContext.condensedText)
@@ -80,6 +91,28 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
     setInputValue('');
   };
 
+  const handleResetClick = async () => {
+    if (!onResetSession) return;
+
+    // Simple, explicit confirmation to avoid accidental data loss.
+    const ok = window.confirm('Reset this session? This clears Redis (L1) + Postgres (memories/condensations/audit) for this session only.');
+    if (!ok) return;
+
+    setShowMenu(false);
+    await onResetSession();
+  };
+
+  const handleOpenNamespaceEditor = () => {
+    setShowMenu(false);
+    setShowNamespaceEditor(true);
+  };
+
+  const handleApplyNamespace = () => {
+    if (!onSetNamespace) return;
+    onSetNamespace(namespaceDraft);
+    setShowNamespaceEditor(false);
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-[600px]">
       {/* Left: Chat Interface */}
@@ -89,28 +122,150 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
             <div className="w-2 h-2 rounded-full bg-brand-accent animate-pulse"></div>
             <h3 className="font-semibold text-gray-200">Live Agent Interaction</h3>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge color="blue">Namespace: {namespace || 'Project_X'}</Badge>
-            {sessionId && <Badge color="purple">Session: {sessionId.slice(-8)}</Badge>}
-            {onSeedDemo && (
-              <button
-                type="button"
-                onClick={onSeedDemo}
-                disabled={isProcessing}
-                className="text-xs font-mono px-2 py-1 rounded border border-gray-700 bg-black/30 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Put identifiers in a single truncating row so they don't wrap into a second line. */}
+            <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+              <div
+                className="min-w-0 max-w-[52%] px-2 py-0.5 rounded text-xs font-mono border bg-blue-500/10 text-blue-400 border-blue-500/20"
+                title={namespace || 'Project_X'}
               >
-                Seed Demo Data
-              </button>
-            )}
-            {onNewSession && (
-              <button
-                type="button"
-                onClick={onNewSession}
-                disabled={isProcessing}
-                className="text-xs font-mono px-2 py-1 rounded border border-gray-700 bg-black/30 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+                <span className="uppercase tracking-wider text-[10px] text-blue-300/80">namespace:</span>{' '}
+                <span className="inline-block max-w-full align-bottom">
+                  <span
+                    className="inline-block max-w-full whitespace-nowrap overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    {namespace || 'Project_X'}
+                  </span>
+                </span>
+              </div>
+
+              <div
+                className="min-w-0 max-w-[48%] px-2 py-0.5 rounded text-xs font-mono border bg-purple-500/10 text-purple-400 border-purple-500/20"
+                title={sessionId || ''}
               >
-                New Session
-              </button>
+                <span className="uppercase tracking-wider text-[10px] text-purple-300/80">session:</span>{' '}
+                <span className="inline-block max-w-full align-bottom">
+                  <span
+                    className="inline-block max-w-full whitespace-nowrap overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    {sessionId || ''}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Industry pattern: keep header clean; move session tooling into a single menu. */}
+            {(onSeedDemo || onNewSession || onResetSession || onSetNamespace) && (
+              <div className="relative flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowMenu((v) => !v)}
+                  disabled={isProcessing}
+                  className="text-xs font-mono px-2 py-1 rounded border border-gray-700 bg-black/30 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+                  aria-haspopup="menu"
+                  aria-expanded={showMenu}
+                >
+                  Options ▾
+                </button>
+
+                {showMenu && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 mt-2 w-60 rounded-lg border border-gray-800 bg-[#0B0C15] shadow-xl overflow-hidden"
+                  >
+                    {onSetNamespace && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={handleOpenNamespaceEditor}
+                        disabled={isProcessing}
+                        className="w-full text-left px-3 py-2 text-xs font-mono text-gray-200 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        Set Namespace…
+                      </button>
+                    )}
+                    {onSeedDemo && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowMenu(false);
+                          onSeedDemo();
+                        }}
+                        disabled={isProcessing}
+                        className="w-full text-left px-3 py-2 text-xs font-mono text-gray-200 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        Seed Demo Data
+                      </button>
+                    )}
+                    {onNewSession && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowMenu(false);
+                          onNewSession();
+                        }}
+                        disabled={isProcessing}
+                        className="w-full text-left px-3 py-2 text-xs font-mono text-gray-200 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        New Session
+                      </button>
+                    )}
+                    {onResetSession && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={handleResetClick}
+                        disabled={isProcessing}
+                        className="w-full text-left px-3 py-2 text-xs font-mono text-red-200 hover:bg-red-900/10 disabled:opacity-50 flex items-center gap-2"
+                        title="Clear L1 (Redis) + L2 (Postgres) for this session"
+                      >
+                        <RotateCcw size={14} className="text-red-300" />
+                        Reset Session
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {showNamespaceEditor && (
+                  <div className="absolute right-0 mt-2 w-[340px] rounded-lg border border-gray-800 bg-[#0B0C15] shadow-xl overflow-hidden">
+                    <div className="px-3 py-2 border-b border-gray-800 text-[10px] uppercase tracking-wider text-gray-400 font-mono">
+                      Switch Namespace
+                    </div>
+                    <div className="p-3 space-y-3">
+                      <input
+                        value={namespaceDraft}
+                        onChange={(e) => setNamespaceDraft(e.target.value)}
+                        placeholder="e.g. Project_X / Demo / Interview"
+                        className="w-full bg-mem-dark border border-mem-border rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary transition-all"
+                        disabled={isProcessing}
+                      />
+                      <div className="text-[11px] text-gray-400 font-mono">
+                        Switching namespace will start a new session.
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowNamespaceEditor(false)}
+                          disabled={isProcessing}
+                          className="text-xs font-mono px-2 py-1 rounded border border-gray-700 bg-black/30 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleApplyNamespace}
+                          disabled={isProcessing || !namespaceDraft.trim()}
+                          className="text-xs font-mono px-2 py-1 rounded border border-emerald-900/60 bg-emerald-950/30 text-emerald-200 hover:bg-emerald-900/20 disabled:opacity-50"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

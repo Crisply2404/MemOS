@@ -6,7 +6,7 @@ import { MemoryPipeline } from './components/MemoryPipeline';
 import { RagDebugger } from './components/RagDebugger';
 import { SemanticRadar } from './components/SemanticRadar'; // New Import
 import { ChatMessage, MemoryNode, RetrievalContext, SystemStats, ViewMode } from './types';
-import { devSeed, ingest, query as queryApi } from './utils/api';
+import { devSeed, ingest, query as queryApi, resetSession } from './utils/api';
 import { generateMockMemories } from './utils/mockData';
 
 const SidebarItem = ({ 
@@ -47,7 +47,10 @@ const App: React.FC = () => {
     compressionRatio: 0.82
   });
 
-  const namespace = 'Project_X';
+  const [namespace, setNamespace] = useState(() => {
+    const existing = localStorage.getItem('memos_namespace');
+    return (existing && existing.trim().length > 0) ? existing : 'Project_X';
+  });
   const [sessionId, setSessionId] = useState(() => {
     const existing = localStorage.getItem('memos_session_id');
     if (existing) return existing;
@@ -55,6 +58,22 @@ const App: React.FC = () => {
     localStorage.setItem('memos_session_id', created);
     return created;
   });
+
+  const handleSetNamespace = (nextNamespace: string) => {
+    const trimmed = nextNamespace.trim();
+    if (!trimmed) return;
+
+    localStorage.setItem('memos_namespace', trimmed);
+    setNamespace(trimmed);
+
+    // Switching tenant/workspace context rotates session to avoid cross-contamination.
+    const created = `web-${crypto.randomUUID()}`;
+    localStorage.setItem('memos_session_id', created);
+    setSessionId(created);
+    setChatMessages([]);
+    setCurrentContext(null);
+    setApiError(null);
+  };
 
   const handleSeedDemo = async () => {
     setIsProcessing(true);
@@ -83,6 +102,34 @@ const App: React.FC = () => {
     setChatMessages([]);
     setCurrentContext(null);
     setApiError(null);
+  };
+
+  const handleResetSession = async () => {
+    setIsProcessing(true);
+    setApiError(null);
+    try {
+      await resetSession({
+        namespace,
+        session_id: sessionId,
+        confirm: true,
+        dry_run: false,
+        clear_audit: false
+      });
+
+      const systemMsg: ChatMessage = {
+        id: `sys-${Date.now()}`,
+        role: 'system',
+        content: 'Session reset: cleared Redis (L1) + Postgres (memories/condensations/audit) for this session.',
+        timestamp: Date.now()
+      };
+
+      setChatMessages(prev => [...prev, systemMsg]);
+      setCurrentContext(null);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : 'Failed to reset session');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Initialize Data
@@ -292,6 +339,8 @@ const App: React.FC = () => {
                 namespace={namespace}
                 onSeedDemo={handleSeedDemo}
                 onNewSession={handleNewSession}
+                onResetSession={handleResetSession}
+                onSetNamespace={handleSetNamespace}
                 sessionId={sessionId}
               />
             )}

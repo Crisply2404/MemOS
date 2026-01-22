@@ -24,18 +24,18 @@ export function AuditPanel(props: {
   const { namespace, sessionId } = props;
 
   const [limit, setLimit] = useState(20);
-  const [onlyCurrentSession, setOnlyCurrentSession] = useState(true);
+  const [scope, setScope] = useState<'session' | 'namespace' | 'all'>('session');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<OpsAuditEvent[]>([]);
 
   const queryParams = useMemo(() => {
     return {
-      namespace,
-      session_id: onlyCurrentSession ? sessionId : undefined,
+      namespace: scope === 'all' ? undefined : namespace,
+      session_id: scope === 'session' ? sessionId : undefined,
       limit,
     };
-  }, [namespace, sessionId, onlyCurrentSession, limit]);
+  }, [namespace, sessionId, scope, limit]);
 
   const load = async () => {
     setIsLoading(true);
@@ -61,7 +61,7 @@ export function AuditPanel(props: {
         <div>
           <h3 className="text-xl font-semibold text-white">Audit Logs</h3>
           <p className="text-sm text-gray-400 mt-1 font-mono">
-            ns={namespace} {' | '} session={sessionId}
+            scope={scope} {' | '} ns={namespace} {' | '} session={sessionId}
           </p>
         </div>
 
@@ -83,14 +83,30 @@ export function AuditPanel(props: {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-gray-300">
-              <input
-                type="checkbox"
-                checked={onlyCurrentSession}
-                onChange={(e) => setOnlyCurrentSession(e.target.checked)}
-              />
-              Only current session
-            </label>
+            <div className="inline-flex rounded-lg border border-mem-border overflow-hidden bg-black/20">
+              <button
+                type="button"
+                onClick={() => setScope('session')}
+                className={`px-3 py-1.5 text-xs font-mono transition-colors ${scope === 'session' ? 'bg-white/10 text-white' : 'text-gray-300 hover:bg-white/5'}`}
+              >
+                Session
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope('namespace')}
+                className={`px-3 py-1.5 text-xs font-mono transition-colors border-l border-mem-border ${scope === 'namespace' ? 'bg-white/10 text-white' : 'text-gray-300 hover:bg-white/5'}`}
+              >
+                Namespace
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope('all')}
+                className={`px-3 py-1.5 text-xs font-mono transition-colors border-l border-mem-border ${scope === 'all' ? 'bg-white/10 text-white' : 'text-gray-300 hover:bg-white/5'}`}
+                title="Show audit events across all namespaces"
+              >
+                All
+              </button>
+            </div>
 
             <label className="flex items-center gap-2 text-sm text-gray-300">
               <span>Limit</span>
@@ -105,6 +121,12 @@ export function AuditPanel(props: {
             </label>
           </div>
         </div>
+
+        {scope === 'session' && (
+          <div className="mt-3 text-[11px] text-gray-500 font-mono">
+            Tip: Switching namespace starts a new session, so this view may look empty. Use "Namespace" or "All" scope to see history.
+          </div>
+        )}
 
         {error && (
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-200">
@@ -122,6 +144,7 @@ export function AuditPanel(props: {
               <tr className="text-left text-gray-400 border-b border-mem-border">
                 <th className="py-2 pr-3">Time</th>
                 <th className="py-2 pr-3">Type</th>
+                <th className="py-2 pr-3">Namespace</th>
                 <th className="py-2 pr-3">Session</th>
                 <th className="py-2 pr-3">Details</th>
               </tr>
@@ -129,7 +152,7 @@ export function AuditPanel(props: {
             <tbody>
               {events.length === 0 && !isLoading ? (
                 <tr>
-                  <td colSpan={4} className="py-6 text-center text-gray-500">
+                  <td colSpan={5} className="py-6 text-center text-gray-500">
                     No events.
                   </td>
                 </tr>
@@ -143,6 +166,9 @@ export function AuditPanel(props: {
                       <span className="inline-flex items-center px-2 py-0.5 rounded bg-white/5 border border-mem-border text-xs font-mono">
                         {ev.event_type}
                       </span>
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap font-mono text-xs text-gray-400">
+                      {ev.namespace}
                     </td>
                     <td className="py-2 pr-3 whitespace-nowrap font-mono text-xs text-gray-400">
                       {ev.session_id}

@@ -109,3 +109,26 @@ class OpsAuditResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
+
+
+class ResetSessionRequest(BaseModel):
+    namespace: str = Field(..., min_length=1, max_length=128)
+    session_id: str = Field(..., min_length=1, max_length=128)
+    confirm: bool = False
+    dry_run: bool = False
+    clear_audit: bool = False
+
+
+class ResetSessionCounts(BaseModel):
+    redis_keys: int = 0
+    memories: int = 0
+    condensations: int = 0
+    audit: int = 0
+
+
+class ResetSessionResponse(BaseModel):
+    ok: bool = True
+    namespace: str
+    session_id: str
+    reset_at: str
+    deleted_counts: ResetSessionCounts

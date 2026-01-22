@@ -21,6 +21,16 @@ def _key(namespace: str, session_id: str) -> str:
     return f"memos:l1:{namespace}:{session_id}"
 
 
+def clear_session(l1: L1Redis, namespace: str, session_id: str) -> int:
+    """Clear L1 for a specific (namespace, session_id).
+
+    Returns the number of keys deleted (0 or 1 with the current key scheme).
+    """
+
+    k = _key(namespace, session_id)
+    return int(l1.client.delete(k) or 0)
+
+
 def append_message(l1: L1Redis, namespace: str, session_id: str, role: str, text: str, ttl_seconds: int = 3600) -> None:
     """Append a message to the L1 sliding window.
 

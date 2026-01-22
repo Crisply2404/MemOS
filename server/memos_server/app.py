@@ -21,12 +21,14 @@ from memos_server.api_models import (
     QueryRequest,
     QueryResponse,
     RetrievedChunk,
+    ResetSessionRequest,
+    ResetSessionResponse,
 )
 from memos_server.db import create_db
 from memos_server.condensation import latest_condensation
 from memos_server.queue import Queues, create_queues
 from memos_server.embedding import fake_embedding
-from memos_server.l1_redis import L1Redis, append_message, create_l1, get_window
+from memos_server.l1_redis import L1Redis, append_message, clear_session, create_l1, get_window
 from memos_server.settings import Settings, get_settings
 
 
@@ -446,5 +448,115 @@ def create_app() -> FastAPI:
             )
 
         return OpsAuditResponse(events=events)
+
+    @app.post("/v1/sessions/reset", response_model=ResetSessionResponse)
+    def reset_session(
+        req: ResetSessionRequest,
+        session: Session = Depends(get_db_session),
+        l1_store: L1Redis = Depends(get_l1),
+    ) -> ResetSessionResponse:
+        """Reset a single session slice (demo isolation).
+
+        Scope: only affects the provided (namespace, session_id). Does not touch other sessions.
+        Safety: requires explicit confirm=true.
+        """
+
+        if not req.confirm:
+            raise HTTPException(status_code=400, detail="confirm=true is required")
+
+        # Dry-run returns counts without mutating state.
+        if req.dry_run:
+            mem_c = session.execute(
+                text("SELECT COUNT(*) AS c FROM memories WHERE namespace = :ns AND session_id = :sid"),
+                {"ns": req.namespace, "sid": req.session_id},
+            ).mappings().one()["c"]
+            cond_c = session.execute(
+                text("SELECT COUNT(*) AS c FROM condensations WHERE namespace = :ns AND session_id = :sid"),
+                {"ns": req.namespace, "sid": req.session_id},
+            ).mappings().one()["c"]
+            audit_c = session.execute(
+                text("SELECT COUNT(*) AS c FROM audit_logs WHERE namespace = :ns AND session_id = :sid"),
+                {"ns": req.namespace, "sid": req.session_id},
+            ).mappings().one()["c"]
+
+            redis_exists = 1 if l1_store.client.exists(f"memos:l1:{req.namespace}:{req.session_id}") else 0
+
+            return ResetSessionResponse(
+                ok=True,
+                namespace=req.namespace,
+                session_id=req.session_id,
+                reset_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                deleted_counts={
+                    "redis_keys": int(redis_exists),
+                    "memories": int(mem_c),
+                    "condensations": int(cond_c),
+                    "audit": int(audit_c) if req.clear_audit else 0,
+                },
+            )
+
+        # 1) L1 (Redis)
+        redis_deleted = clear_session(l1_store, req.namespace, req.session_id)
+
+        # 2) L2 (Postgres) - delete in a stable order
+        cond_res = session.execute(
+            text("DELETE FROM condensations WHERE namespace = :ns AND session_id = :sid"),
+            {"ns": req.namespace, "sid": req.session_id},
+        )
+        mem_res = session.execute(
+            text("DELETE FROM memories WHERE namespace = :ns AND session_id = :sid"),
+            {"ns": req.namespace, "sid": req.session_id},
+        )
+
+        # 3) Audit behavior:
+        # - Default: keep existing audit logs (useful for explainability and debugging).
+        # - Always: append a SESSION_RESET event.
+        # - Optional: if clear_audit=true, wipe old audit logs (but keep the reset event).
+        audit_deleted = 0
+        if req.clear_audit:
+            audit_res = session.execute(
+                text("DELETE FROM audit_logs WHERE namespace = :ns AND session_id = :sid"),
+                {"ns": req.namespace, "sid": req.session_id},
+            )
+            audit_deleted = int(audit_res.rowcount or 0)
+
+        session.execute(
+            text(
+                """
+                INSERT INTO audit_logs (id, namespace, session_id, event_type, details)
+                VALUES (:id, :namespace, :session_id, :event_type, CAST(:details AS jsonb))
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "namespace": req.namespace,
+                "session_id": req.session_id,
+                "event_type": "SESSION_RESET",
+                "details": json.dumps(
+                    {
+                        "cleared": {
+                            "redis_keys": int(redis_deleted),
+                            "memories": int(mem_res.rowcount or 0),
+                            "condensations": int(cond_res.rowcount or 0),
+                            "audit_deleted": int(audit_deleted),
+                        },
+                        "clear_audit": bool(req.clear_audit),
+                    }
+                ),
+            },
+        )
+        session.commit()
+
+        return ResetSessionResponse(
+            ok=True,
+            namespace=req.namespace,
+            session_id=req.session_id,
+            reset_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            deleted_counts={
+                "redis_keys": int(redis_deleted),
+                "memories": int(mem_res.rowcount or 0),
+                "condensations": int(cond_res.rowcount or 0),
+                "audit": int(audit_deleted),
+            },
+        )
 
     return app
