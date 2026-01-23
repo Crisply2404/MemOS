@@ -216,7 +216,9 @@ const App: React.FC = () => {
         originalText,
         condensedText: response.condensed_summary,
         tokenUsageOriginal: response.token_usage_original,
-        tokenUsageCondensed: response.token_usage_condensed
+        tokenUsageCondensed: response.token_usage_condensed,
+        contextPackId: response.context_pack_id ?? null,
+        contextPack: response.context_pack ?? {}
       };
 
       setCurrentContext(context);

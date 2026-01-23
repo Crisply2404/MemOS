@@ -33,6 +33,7 @@ $q = PostJson "$base/v1/query" @{
   top_k      = 6
 }
 Write-Host ('Query returned chunks=' + $q.raw_chunks.Count)
+if (-not $q.context_pack_id) { Write-Warning 'context_pack_id missing (expected after industry-aligned update)' }
 
 Start-Sleep -Seconds 2
 
@@ -71,5 +72,22 @@ if ($histCount -eq 0) {
   $saved = [Math]::Max(0, [int]$latest.token_original - [int]$latest.token_condensed)
   Write-Host ('Latest condensation: version=' + $latest.version + ' saved=' + $saved + ' tok created_at=' + $latest.created_at)
 }
+
+# 6) Context pack history (working memory replay): query-scoped snapshots.
+$packsUrl = "$base/v1/ops/context_packs?namespace=$ns&session_id=$sid&limit=5"
+$packs = Invoke-RestMethod -Method Get -Uri $packsUrl
+$packCount = @($packs.context_packs).Count
+Write-Host ('Context packs for this session: ' + $packCount)
+if ($packCount -eq 0) {
+  Write-Warning 'No context packs found (unexpected).'
+} else {
+  $p0 = @($packs.context_packs)[0]
+  Write-Host ('Latest context pack: id=' + $p0.id + ' query=' + $p0.query_text + ' retrieved=' + $p0.retrieved_count)
+}
+
+# 7) Procedural registry (prompt/tool registry)
+$proc = Invoke-RestMethod -Method Get -Uri "$base/v1/ops/procedural"
+if (-not $proc.prompt_registry) { Write-Warning 'procedural prompt_registry missing (unexpected)' }
+if (-not $proc.tool_registry) { Write-Warning 'procedural tool_registry missing (unexpected)' }
 
 Write-Host 'OK: Seed -> ingest/query -> audit/pipeline verified at API level.'

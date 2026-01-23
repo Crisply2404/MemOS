@@ -32,6 +32,8 @@ export interface RetrievalContext {
   tokenUsageCondensed: number;
   sourceTier: MemoryTier;
   similarity: number;
+  contextPackId?: string | null;
+  contextPack?: Record<string, unknown>;
 }
 
 export interface SystemStats {

@@ -41,6 +41,10 @@ function tryParseMemoryCard(text: string): MemoryCard | null {
 export function MemoryCardView(props: {
   text: string;
   showRawByDefault?: boolean;
+  showSchemaBadge?: boolean;
+  showBuckets?: boolean;
+  showRawExcerpt?: boolean;
+  showRawJson?: boolean;
 }): React.ReactElement {
   const card = tryParseMemoryCard(props.text);
 
@@ -51,6 +55,11 @@ export function MemoryCardView(props: {
       </div>
     );
   }
+
+  const showSchemaBadge = props.showSchemaBadge ?? true;
+  const showBuckets = props.showBuckets ?? true;
+  const showRawExcerpt = props.showRawExcerpt ?? true;
+  const showRawJson = props.showRawJson ?? true;
 
   const risks = (card.risks && card.risks.length > 0) ? card.risks : (card.pitfalls || []);
   const actions = (card.actions && card.actions.length > 0) ? card.actions : (card.commands || []);
@@ -67,13 +76,19 @@ export function MemoryCardView(props: {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge color="purple">{card.schema}</Badge>
-        {bucket('facts', card.facts)}
-        {bucket('preferences', card.preferences)}
-        {bucket('constraints', card.constraints)}
-        {bucket('decisions', card.decisions)}
-      </div>
+      {(showSchemaBadge || showBuckets) ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {showSchemaBadge ? <Badge color="purple">{card.schema}</Badge> : null}
+          {showBuckets ? (
+            <>
+              {bucket('facts', card.facts)}
+              {bucket('preferences', card.preferences)}
+              {bucket('constraints', card.constraints)}
+              {bucket('decisions', card.decisions)}
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3">
         <div className="bg-black/20 border border-mem-border rounded-lg p-3">
@@ -103,7 +118,7 @@ export function MemoryCardView(props: {
           )}
         </div>
 
-        {card.raw_excerpt ? (
+        {showRawExcerpt && card.raw_excerpt ? (
           <details className="bg-black/10 border border-mem-border rounded-lg p-3" open={props.showRawByDefault}>
             <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-gray-400">Raw excerpt</summary>
             <div className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-300 font-mono leading-relaxed">
@@ -112,12 +127,14 @@ export function MemoryCardView(props: {
           </details>
         ) : null}
 
-        <details className="bg-black/10 border border-mem-border rounded-lg p-3" open={props.showRawByDefault}>
-          <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-gray-400">Raw JSON</summary>
-          <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-300 font-mono leading-relaxed">
+        {showRawJson ? (
+          <details className="bg-black/10 border border-mem-border rounded-lg p-3" open={props.showRawByDefault}>
+            <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-gray-400">Raw JSON</summary>
+            <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-gray-300 font-mono leading-relaxed">
 {props.text}
-          </pre>
-        </details>
+            </pre>
+          </details>
+        ) : null}
       </div>
     </div>
   );

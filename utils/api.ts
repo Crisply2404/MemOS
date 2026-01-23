@@ -76,6 +76,11 @@ export type QueryResponse = {
   token_usage_original: number;
   token_usage_condensed: number;
   rerank_debug: Array<{ method: string; components: Record<string, number> }>;
+  session_summary_id?: string | null;
+  session_summary_cache_hit?: boolean;
+  session_summary_enqueued?: boolean;
+  context_pack_id?: string | null;
+  context_pack?: Record<string, unknown>;
 };
 
 export type OpsPipelineResponse = {
@@ -171,6 +176,50 @@ export async function opsCondensations(params?: {
 
   const suffix = qs.toString().length > 0 ? `?${qs.toString()}` : '';
   return requestJson<OpsCondensationsResponse>(`/v1/ops/condensations${suffix}`, {
+    method: 'GET'
+  });
+}
+
+export type OpsContextPack = {
+  id: string;
+  namespace: string;
+  session_id: string;
+  query_text: string;
+  session_summary_id: string | null;
+  retrieved_count: number;
+  created_at: string;
+  pack: Record<string, unknown>;
+};
+
+export type OpsContextPacksResponse = {
+  context_packs: OpsContextPack[];
+};
+
+export async function opsContextPacks(params?: {
+  namespace?: string;
+  session_id?: string;
+  limit?: number;
+  include_pack?: boolean;
+}): Promise<OpsContextPacksResponse> {
+  const qs = new URLSearchParams();
+  if (params?.namespace) qs.set('namespace', params.namespace);
+  if (params?.session_id) qs.set('session_id', params.session_id);
+  if (typeof params?.limit === 'number') qs.set('limit', String(params.limit));
+  if (typeof params?.include_pack === 'boolean') qs.set('include_pack', String(params.include_pack));
+
+  const suffix = qs.toString().length > 0 ? `?${qs.toString()}` : '';
+  return requestJson<OpsContextPacksResponse>(`/v1/ops/context_packs${suffix}`, {
+    method: 'GET'
+  });
+}
+
+export type OpsProceduralResponse = {
+  prompt_registry: Record<string, unknown>;
+  tool_registry: Record<string, unknown>;
+};
+
+export async function opsProcedural(): Promise<OpsProceduralResponse> {
+  return requestJson<OpsProceduralResponse>('/v1/ops/procedural', {
     method: 'GET'
   });
 }

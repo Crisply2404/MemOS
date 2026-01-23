@@ -60,12 +60,12 @@ export function CondensationHistory(props: {
     <div className="bg-black/10 border border-mem-border rounded-lg p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-wider text-gray-400">Summary History (Replay)</div>
+          <div className="text-[10px] uppercase tracking-wider text-gray-400">Session Summary History (Replay)</div>
           <div className="text-xs text-gray-500 font-mono truncate">
             ns={namespace} {' | '} session={sessionId}
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            Debug/replay view: persisted summaries for this session (version + trigger + inputs). Not the main user flow.
+            Debug/replay view: persisted session summaries (episodic) for this session (version + trigger + inputs).
           </div>
         </div>
         <button
