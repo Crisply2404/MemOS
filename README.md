@@ -5,7 +5,7 @@
 > 当前仓库包含：
 >
 > - 前端控制台（Vite + React）：System Overview / Memory Pipeline / Semantic Radar / RAG Debugger
-> - 后端（规划中）：FastAPI + Worker + Redis + Postgres(pgvector)，用于提供真实的 L1/L2/L3 记忆服务与治理策略
+> - 后端：FastAPI + Worker + Redis + Postgres(pgvector)，用于提供 **L1/L2 可验证的记忆服务**；L3 Entity Graph 为规划项（README 中会明确标注）
 
 ## 前端已实现的可视化（以当前代码为准）
 
@@ -17,6 +17,17 @@
 > 注：仓库内也包含 `CortexVisualizer`（3D 点云）与 `MemoryHeatmap`（衰减热力图）组件，但目前尚未接入主视图；后端打通 embedding 与衰减数据后会重新接入。
 
 ## 系统架构（目标形态）
+
+## 当前实现 vs 目标形态（面试讲解用）
+
+| 主题 | 当前实现（可验证） | 目标形态（规划） |
+|------|--------------------|------------------|
+| API 路径 | 以 `/v1/*` 为准（见 `/docs`） | 保持 `/v1/*`，逐步补齐 `/v1/policy` 等 |
+| L1 Scratchpad | Redis 滑动窗口（会话级） | 更完整的 TTL/衰减与策略化治理 |
+| L2 Semantic Store | Postgres + pgvector，deterministic fake embedding（跑通闭环、可解释） | 真实 embedding + rerank + 评测闭环 |
+| L3 Entity Layer | 未实现（README 标注为规划） | 实体/关系抽取与纠偏（可扩展 Neo4j） |
+| Semantic Radar | 基于真实 `/v1/query` 结果可视化候选与 rerank（MVP 为确定性启发式） | Cross-Encoder rerank + 过滤原因可解释 |
+| Pipeline/Vault | 基于 condensation 结构化产物展示 token savings 与结构化卡片 | 实体图谱与更丰富的治理链路观测 |
 
 ### Memory Controller（独立微服务）
 
@@ -36,7 +47,7 @@
 
 ## 开发路线（Agent 应用开发岗取向）
 
-1. **定义 API 契约**：`/ingest`、`/query`、`/ops/stats`、`/ops/pipeline`、`/ops/audit`、`/policy`，让前端从 mock 切换到真实后端。
+1. **定义 API 契约**：以真实实现为准：`/v1/ingest`、`/v1/query`、`/v1/ops/stats`、`/v1/ops/pipeline`、`/v1/ops/audit`、`/v1/sessions/reset`；`/v1/policy` 为规划项。
 2. **落地最小可用后端**：FastAPI + Redis(L1) + Postgres/pgvector(L2)；完成端到端写入与查询。
 3. **实现 Worker 治理链路**：condensation、去重/冲突检测、importance/decay，并在审计日志里可解释。
 4. **检索与 rerank 可解释输出**：返回每条 chunk 的来源层级、分数组成与过滤原因，支撑 Radar/RAG Debugger。
@@ -131,5 +142,4 @@ npm run dev -- --port 3000
 
 ## Docs
 
-- 实施记录（保姆级）：`docs/PROJECT_LOG.md`
-- 小步任务清单：`docs/ROADMAP_TODO.md`
+- 项目知识库（面试讲解 SSOT）：`helloagents/INDEX.md`
