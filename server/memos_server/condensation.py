@@ -37,12 +37,12 @@ def simple_condense(text_value: str, max_chars: int = 280) -> str:
 def structured_condense(raw_text: str) -> str:
     """Produce a lightweight, deterministic 'memory card' summary.
 
-    Goal (TODO5): upgrade from truncation to a stable structure that preserves
-    key info like pitfalls, causes, fixes, commands, and ports.
+    Goal: upgrade from truncation to a stable structure that preserves key info
+    like pitfalls, causes, fixes, commands, and ports.
 
     Notes:
     - No LLMs here: keep it reproducible for demos and easy to test.
-    - Output is JSON so the frontend can later render it as sections.
+    - Output is JSON so the frontend can render it as sections.
     """
 
     text_value = raw_text.strip()
@@ -78,10 +78,14 @@ def structured_condense(raw_text: str) -> str:
         # Backwards-compatible aliases for older UI / stored rows.
         "pitfalls": risks,
         "commands": actions[:20],
-        "raw_excerpt": simple_condense(text_value, max_chars=360),
     }
 
-    return json.dumps(card, ensure_ascii=True)
+    # Avoid inflating size: only keep a tiny excerpt when raw context is large.
+    if len(text_value) > 800:
+        card["raw_excerpt"] = simple_condense(text_value, max_chars=180)
+
+    # Keep output compact and readable in DB (no ASCII escaping).
+    return json.dumps(card, ensure_ascii=False, separators=(",", ":"))
 
 
 def run_condensation_job(
@@ -122,10 +126,16 @@ def run_condensation_job(
         )
 
     db = create_db(effective_db_url)
-    # TODO5: structured, deterministic condensation (no LLM yet).
     condensed = structured_condense(raw_text)
     token_original = estimate_tokens(raw_text)
     token_condensed = estimate_tokens(condensed)
+
+    version = "memos.memory_card.v2"
+    trigger_reason = "query_no_cached_condensation"
+    trigger_details = {
+        "source": "api:/v1/query",
+        "memory_ids": list(memory_ids),
+    }
 
     condensation_id = str(uuid.uuid4())
 
@@ -134,15 +144,40 @@ def run_condensation_job(
             text(
                 """
                 INSERT INTO condensations
-                  (id, namespace, session_id, source_memory_ids, condensed_text, token_original, token_condensed)
+                                    (
+                                        id,
+                                        namespace,
+                                        session_id,
+                                        version,
+                                        trigger_reason,
+                                        trigger_details,
+                                        source_memory_ids,
+                                        condensed_text,
+                                        token_original,
+                                        token_condensed
+                                    )
                 VALUES
-                  (:id, :namespace, :session_id, :source_memory_ids, :condensed_text, :token_original, :token_condensed)
+                                    (
+                                        :id,
+                                        :namespace,
+                                        :session_id,
+                                        :version,
+                                        :trigger_reason,
+                                        CAST(:trigger_details AS jsonb),
+                                        :source_memory_ids,
+                                        :condensed_text,
+                                        :token_original,
+                                        :token_condensed
+                                    )
                 """
             ),
             {
                 "id": condensation_id,
                 "namespace": namespace,
                 "session_id": session_id,
+                                "version": version,
+                                "trigger_reason": trigger_reason,
+                                "trigger_details": json.dumps(trigger_details),
                 "source_memory_ids": memory_ids,
                 "condensed_text": condensed,
                 "token_original": token_original,

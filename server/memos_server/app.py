@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 
@@ -16,6 +17,7 @@ from memos_server.api_models import (
     IngestResponse,
     MemoryTier,
     OpsAuditResponse,
+    OpsCondensationsResponse,
     OpsPipelineResponse,
     OpsStatsResponse,
     QueryRequest,
@@ -30,6 +32,25 @@ from memos_server.queue import Queues, create_queues
 from memos_server.embedding import fake_embedding
 from memos_server.l1_redis import L1Redis, append_message, clear_session, create_l1, get_window
 from memos_server.settings import Settings, get_settings
+
+
+_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
+
+
+def _tokenize(text_value: str) -> set[str]:
+    return set(_TOKEN_RE.findall(text_value.lower()))
+
+
+def _score_overlap(query_text: str, candidate_text: str) -> float:
+    q = _tokenize(query_text)
+    if not q:
+        return 0.0
+    c = _tokenize(candidate_text)
+    return len(q & c) / len(q)
+
+
+def _clamp01(value: float) -> float:
+    return 0.0 if value < 0.0 else (1.0 if value > 1.0 else value)
 
 
 def create_app() -> FastAPI:
@@ -275,13 +296,22 @@ def create_app() -> FastAPI:
 
         chunks: list[RetrievedChunk] = []
         for r in rows:
+            vector_score = float(r["score"] or 0.0)
+            text_value = str(r["text"])
+            overlap = _score_overlap(req.query, text_value)
+            rerank_score = _clamp01(0.75 * vector_score + 0.25 * overlap)
+
             chunks.append(
                 RetrievedChunk(
                     id=str(r["id"]),
                     tier=MemoryTier.L2_SEMANTIC,
-                    text=str(r["text"]),
-                    score=float(r["score"] or 0.0),
-                    metadata={"role": str(r["role"])},
+                    text=text_value,
+                    score=vector_score,
+                    metadata={
+                        "role": str(r["role"]),
+                        "overlap": overlap,
+                        "rerank_score": rerank_score,
+                    },
                 )
             )
 
@@ -290,8 +320,10 @@ def create_app() -> FastAPI:
         # 2) Try to reuse latest persisted condensation (produced by worker).
         persisted = latest_condensation(session, req.namespace, req.session_id)
         if persisted:
+            condensation_cache_hit = True
             condensed, token_original, token_condensed = persisted
         else:
+            condensation_cache_hit = False
             # If no condensation exists yet, enqueue a background job and return a simple fallback.
             memory_ids = [c.id for c in chunks]
             q.condensation.enqueue(
@@ -319,7 +351,17 @@ def create_app() -> FastAPI:
                 "namespace": req.namespace,
                 "session_id": req.session_id,
                 "event_type": "QUERY",
-                "details": json.dumps({"top_k": req.top_k, "l2_hits": len(chunks)}),
+                "details": json.dumps(
+                    {
+                        "top_k": req.top_k,
+                        "l2_hits": len(chunks),
+                        "condensation_cache_hit": condensation_cache_hit,
+                        "rerank": {
+                            "method": "deterministic_overlap_v1",
+                            "weights": {"vector": 0.75, "overlap": 0.25},
+                        },
+                    }
+                ),
             },
         )
         session.commit()
@@ -332,7 +374,12 @@ def create_app() -> FastAPI:
             condensed_summary=condensed,
             token_usage_original=token_original,
             token_usage_condensed=token_condensed,
-            rerank_debug=[],
+            rerank_debug=[
+                {
+                    "method": "deterministic_overlap_v1",
+                    "components": {"vector_weight": 0.75, "overlap_weight": 0.25},
+                }
+            ],
         )
 
     @app.get("/v1/ops/stats", response_model=OpsStatsResponse)
@@ -371,7 +418,7 @@ def create_app() -> FastAPI:
         recent = session.execute(
             text(
                 """
-                SELECT id, namespace, session_id, token_original, token_condensed, created_at
+                SELECT id, namespace, session_id, version, condensed_text, token_original, token_condensed, created_at
                 FROM condensations
                 ORDER BY created_at DESC
                 LIMIT 20
@@ -386,6 +433,8 @@ def create_app() -> FastAPI:
                     "id": str(r["id"]),
                     "namespace": str(r["namespace"]),
                     "session_id": str(r["session_id"]),
+                    "version": str(r["version"]),
+                    "condensed_text": str(r["condensed_text"]),
                     "token_original": int(r["token_original"]),
                     "token_condensed": int(r["token_condensed"]),
                     "created_at": str(r["created_at"]),
@@ -448,6 +497,80 @@ def create_app() -> FastAPI:
             )
 
         return OpsAuditResponse(events=events)
+
+    @app.get("/v1/ops/condensations", response_model=OpsCondensationsResponse)
+    def ops_condensations(
+        session: Session = Depends(get_db_session),
+        namespace: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+    ) -> OpsCondensationsResponse:
+        limit = max(1, min(limit, 200))
+
+        where = []
+        params: dict[str, object] = {"limit": limit}
+        if namespace:
+            where.append("namespace = :namespace")
+            params["namespace"] = namespace
+        if session_id:
+            where.append("session_id = :session_id")
+            params["session_id"] = session_id
+
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+        rows = session.execute(
+            text(
+                f"""
+                SELECT
+                    id,
+                    namespace,
+                    session_id,
+                    version,
+                    trigger_reason,
+                    trigger_details,
+                    source_memory_ids,
+                    condensed_text,
+                    token_original,
+                    token_condensed,
+                    created_at
+                FROM condensations
+                {where_sql}
+                ORDER BY created_at DESC
+                LIMIT :limit
+                """
+            ),
+            params,
+        ).mappings().all()
+
+        condensations: list[dict[str, object]] = []
+        for r in rows:
+            trigger_details_value = r["trigger_details"]
+            if isinstance(trigger_details_value, str):
+                try:
+                    trigger_details_value = json.loads(trigger_details_value)
+                except Exception:
+                    trigger_details_value = {"raw": trigger_details_value}
+
+            src = r["source_memory_ids"] or []
+            source_memory_ids = [str(x) for x in src] if isinstance(src, (list, tuple)) else [str(src)]
+
+            condensations.append(
+                {
+                    "id": str(r["id"]),
+                    "namespace": str(r["namespace"]),
+                    "session_id": str(r["session_id"]),
+                    "version": str(r["version"]),
+                    "trigger_reason": (str(r["trigger_reason"]) if r["trigger_reason"] is not None else None),
+                    "trigger_details": trigger_details_value or {},
+                    "source_memory_ids": source_memory_ids,
+                    "condensed_text": str(r["condensed_text"]),
+                    "token_original": int(r["token_original"]),
+                    "token_condensed": int(r["token_condensed"]),
+                    "created_at": str(r["created_at"]),
+                }
+            )
+
+        return OpsCondensationsResponse(condensations=condensations)
 
     @app.post("/v1/sessions/reset", response_model=ResetSessionResponse)
     def reset_session(

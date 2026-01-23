@@ -84,6 +84,8 @@ class OpsRecentCondensation(BaseModel):
     id: str
     namespace: str
     session_id: str
+    version: str
+    condensed_text: str
     token_original: int
     token_condensed: int
     created_at: str
@@ -105,6 +107,24 @@ class OpsAuditEvent(BaseModel):
 
 class OpsAuditResponse(BaseModel):
     events: list[OpsAuditEvent]
+
+
+class OpsCondensation(BaseModel):
+    id: str
+    namespace: str
+    session_id: str
+    version: str
+    trigger_reason: str | None = None
+    trigger_details: dict[str, Any] = Field(default_factory=dict)
+    source_memory_ids: list[str] = Field(default_factory=list)
+    condensed_text: str
+    token_original: int
+    token_condensed: int
+    created_at: str
+
+
+class OpsCondensationsResponse(BaseModel):
+    condensations: list[OpsCondensation]
 
 
 class HealthResponse(BaseModel):
