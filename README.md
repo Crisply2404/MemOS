@@ -10,9 +10,9 @@
 ## 前端已实现的可视化（以当前代码为准）
 
 - **System Overview**：全局指标（Total Memories / Active Contexts / Token Savings / Compression Ratio）与 L1/L2/L3 健康度面板。
-- **Memory Pipeline**：实时摄取 → 压缩（Condensation）→ 实体抽取（Entity Graphing）→ 结构化入库（Vault）链路观测。
+- **Memory Pipeline**：实时摄取 → 会话摘要（Session Summary / Condensation）→ 实体抽取（Entity Graphing）→ 结构化入库（Vault）链路观测。
 - **Semantic Radar**：以“雷达扫描/相关性 blips”展示检索候选与 rerank/过滤效果（强调可解释检索）。
-- **RAG Debugger**：并排对照 Retrieved Raw Context vs Condensed Summary，并实时显示节省的 Token 比例。
+- **RAG Debugger**：并排对照 Retrieved Raw Context vs Working Memory（Context Pack），用于解释“本次 query 的上下文是怎么拼出来的”。
 
 > 注：仓库内也包含 `CortexVisualizer`（3D 点云）与 `MemoryHeatmap`（衰减热力图）组件，但目前尚未接入主视图；后端打通 embedding 与衰减数据后会重新接入。
 
@@ -42,14 +42,14 @@
 ### 动态治理策略
 
 - **重要性评分 + TTL/衰减**：自动清理低价值信息，防止 Memory 膨胀。
-- **Condensation Worker（异步）**：周期性将碎片化短对话压缩成摘要写入长期记忆，并产出 token savings 指标。
+- **Session Summary Worker（异步）**：按策略将 episodic memory（会话交互）压缩成 session summary 快照写入 DB，并产出 token savings 指标。
 - **去重/冲突检测**：向量相似度阈值 + 元数据规则，减少冗余并避免跨 namespace 污染。
 
 ## 开发路线（Agent 应用开发岗取向）
 
-1. **定义 API 契约**：以真实实现为准：`/v1/ingest`、`/v1/query`、`/v1/ops/stats`、`/v1/ops/pipeline`、`/v1/ops/audit`、`/v1/sessions/reset`；`/v1/policy` 为规划项。
+1. **定义 API 契约**：以真实实现为准：`/v1/ingest`、`/v1/query`、`/v1/ops/stats`、`/v1/ops/pipeline`、`/v1/ops/audit`、`/v1/ops/condensations`、`/v1/ops/context_packs`、`/v1/ops/procedural`、`/v1/sessions/reset`；`/v1/policy` 为规划项。
 2. **落地最小可用后端**：FastAPI + Redis(L1) + Postgres/pgvector(L2)；完成端到端写入与查询。
-3. **实现 Worker 治理链路**：condensation、去重/冲突检测、importance/decay，并在审计日志里可解释。
+3. **实现 Worker 治理链路**：session summary（condensation）、去重/冲突检测、importance/decay，并在审计日志里可解释。
 4. **检索与 rerank 可解释输出**：返回每条 chunk 的来源层级、分数组成与过滤原因，支撑 Radar/RAG Debugger。
 5. **离线评测闭环**：Recall@k/MRR、Token Savings、Pollution Rate（跨 namespace 误召回率），写入 README 作为可验证成果。
 
@@ -131,12 +131,12 @@ npm run dev -- --port 3000
 
 ## Demo (1-minute)
 
-目标：1 分钟演示 “存记忆 -> 查记忆 -> 触发摘要 -> 省 token -> 看 pipeline/audit”。
+目标：1 分钟演示 “存记忆 -> 查记忆 -> 触发 session summary -> 省 token -> 看 pipeline/audit”。
 
 1) 打开 UI：http://127.0.0.1:3000
 2) 点击 `New Session`（保证演示隔离）
 3) 点击 `Seed Demo Data`
-4) 在 RAG Debugger 输入一个问题（示例：`我踩过哪些坑？`）触发检索与 condensation
+4) 在 RAG Debugger 输入一个问题（示例：`我踩过哪些坑？`）触发检索与 session summary 刷新
 5) 打开 `Pipeline` 页面：观察队列与 recent condensations 更新
 6) 可选：打开 API 文档并查看审计：http://127.0.0.1:8000/docs -> `GET /v1/ops/audit`
 

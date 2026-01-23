@@ -18,9 +18,9 @@
 **结果**: 本地开发/演示在 Windows 上可用
 
 ### Condensation 结构化输出（Memory Card）
-**条件**: `/v1/query` 无可复用 condensation 时会 enqueue job  
-**行为**: worker 写入 `condensations` 表，`condensed_text` 为结构化 JSON（`memos.memory_card.v2`）  
-**结果**: 前端 Pipeline/Vault 与 RAG Debugger 可直接解析展示（可解释、可复现）
+**条件**: `/v1/query` 检测到 session 有足够新消息（或首次 bootstrap）会 enqueue job  
+**行为**: worker 写入 `condensations` 表作为 session summary 快照（episodic），`condensed_text` 为结构化 JSON（`memos.memory_card.v2`）  
+**结果**: Web 可回放 session summary history，并作为 working memory（context pack）的一部分用于解释“prompt 如何组装”
 
 ## 依赖关系
 

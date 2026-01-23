@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### 新增
+- **[server]**: 对标业界：condensation 明确为 session summary（episodic）快照，并新增 query 级 working memory `context_packs`（可回放）
+- **[server]**: 新增 `/v1/ops/context_packs` 与 `/v1/ops/procedural`（procedural memory：prompt/tool registry）
+- **[web]**: RAG Debugger 支持展开查看 working memory（context pack），并将主视图命名对齐为 “Session Summary (Episodic)”
+- **[web]**: RAG Debugger 默认只展示 working memory（context pack），session summary history 下沉到 Pipeline/Vault（更贴近业界）
+
 ### 修复
 - **[server/db]**: 修复 `condensations.version` 类型不一致导致 worker 写入失败（init schema 改为 `TEXT DEFAULT 'v1'`）
 - **[web]**: 结构化 memory card 兼容“被二次 JSON 编码”的字符串；历史面板默认按卡片渲染并补充用途说明

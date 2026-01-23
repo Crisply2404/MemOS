@@ -19,6 +19,8 @@
 | `/v1/ops/pipeline` | GET | 队列与 recent condensations |
 | `/v1/ops/audit` | GET | 审计事件（可过滤） |
 | `/v1/ops/condensations` | GET | Condensation 历史列表（支持 namespace/session_id 过滤） |
+| `/v1/ops/context_packs` | GET | Context pack 历史列表（working memory，可过滤） |
+| `/v1/ops/procedural` | GET | Procedural registry（prompt/tool registry） |
 | `/v1/sessions/reset` | POST | 重置单个 namespace+session_id 的数据切片 |
 
 ## 行为规范
@@ -35,10 +37,15 @@
 - `rerank_debug` 返回方法与权重（当前：`deterministic_overlap_v1`）
 **结果**: Radar 可以展示 “raw similarity vs rerank score” 的差异（无 LLM 依赖）
 
-### Ops Pipeline 的结构化产物（Vault 数据源）
-**条件**: worker 写入 condensation 结果  
-**行为**: `/v1/ops/pipeline` 返回 `recent_condensations[*].version` 与 `condensed_text`（结构化 JSON 卡片）  
-**结果**: Pipeline/Vault 页面可展示真实的 condensation 结构化内容与 token savings
+### Session Summary（Episodic condensation）
+**条件**: `/v1/query` 检测到 session 有足够新消息  
+**行为**: enqueue worker 生成 session summary 快照，写入 `condensations`（含 `version/trigger_details/source_memory_ids`）  
+**结果**: `/v1/ops/condensations` 提供 per-session 回放历史；`/v1/ops/pipeline` 提供全局 recent 视图
+
+### Working Memory（Context Pack）
+**条件**: 每次 `/v1/query`  
+**行为**: 组装 working memory（procedural + session summary + retrieval chunks）并写入 `context_packs`  
+**结果**: `/v1/ops/context_packs` 可回放“某次 query 的上下文组装”，用于 debug/评测/面试讲解
 
 ### Session Reset（演示隔离）
 **条件**: `confirm=true` 且（namespace, session_id）存在  
