@@ -59,4 +59,17 @@ if ($recentForSession.Count -eq 0) {
   Write-Host ('Recent condensations for this session after retry: ' + $recentForSession2.Count)
 }
 
+# 5) Condensation history (replay surface): this is per-session and more reliable than global pipeline slicing.
+$histUrl = "$base/v1/ops/condensations?namespace=$ns&session_id=$sid&limit=5"
+$hist = Invoke-RestMethod -Method Get -Uri $histUrl
+$histCount = @($hist.condensations).Count
+Write-Host ('Condensation history items: ' + $histCount)
+if ($histCount -eq 0) {
+  Write-Warning 'No condensation history yet. If you want to see it, start the worker and re-run query after a few seconds.'
+} else {
+  $latest = @($hist.condensations)[0]
+  $saved = [Math]::Max(0, [int]$latest.token_original - [int]$latest.token_condensed)
+  Write-Host ('Latest condensation: version=' + $latest.version + ' saved=' + $saved + ' tok created_at=' + $latest.created_at)
+}
+
 Write-Host 'OK: Seed -> ingest/query -> audit/pipeline verified at API level.'
