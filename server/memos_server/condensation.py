@@ -16,6 +16,15 @@ class CondensationResult:
     token_condensed: int
 
 
+@dataclass(frozen=True)
+class PersistedCondensation:
+    id: str
+    condensed_text: str
+    token_original: int
+    token_condensed: int
+    created_at: str
+
+
 def estimate_tokens(text_value: str) -> int:
     # crude estimate: ~4 chars/token
     return max(1, len(text_value) // 4)
@@ -88,15 +97,60 @@ def structured_condense(raw_text: str) -> str:
     return json.dumps(card, ensure_ascii=False, separators=(",", ":"))
 
 
+def _card_to_plain_text(card_json: str) -> str:
+    """Convert a stored memory card JSON into a small plain-text hint for rolling summaries."""
+
+    try:
+        obj = json.loads(card_json)
+        if not isinstance(obj, dict):
+            return card_json
+        if obj.get("schema") not in ("memos.memory_card.v1", "memos.memory_card.v2"):
+            return card_json
+        parts: list[str] = []
+        for key in ("facts", "preferences", "constraints", "decisions", "risks", "actions"):
+            items = obj.get(key)
+            if isinstance(items, list) and items:
+                parts.append(f"{key}: " + "; ".join(str(x) for x in items[:6]))
+        return "\n".join(parts) if parts else card_json
+    except Exception:
+        return card_json
+
+
+def _fetch_messages(session: Session, memory_ids: list[str]) -> list[dict[str, str]]:
+    rows = (
+        session.execute(
+            text(
+                """
+                SELECT id, role, text, created_at
+                FROM memories
+                WHERE id = ANY(CAST(:ids AS uuid[]))
+                ORDER BY created_at ASC
+                """
+            ),
+            {"ids": memory_ids},
+        )
+        .mappings()
+        .all()
+    )
+    out: list[dict[str, str]] = []
+    for r in rows:
+        out.append({"id": str(r["id"]), "role": str(r["role"]), "text": str(r["text"])})
+    return out
+
+
 def run_condensation_job(
     *,
     database_url: str | None = None,
     namespace: str,
     session_id: str,
-    memory_ids: list[str],
-    raw_text: str,
+    memory_ids: list[str] | None = None,
+    raw_text: str | None = None,
+    prev_summary_id: str | None = None,
+    prev_summary_text: str | None = None,
+    trigger_reason: str | None = None,
+    trigger_details: dict[str, object] | None = None,
 ) -> CondensationResult:
-    """RQ worker job: write a condensation row for the given raw context.
+    """RQ worker job: write a session-summary snapshot into `condensations`.
 
     Why this exists:
     - Condensation can be slow (LLM call / heavy processing). It must not block the API.
@@ -126,20 +180,45 @@ def run_condensation_job(
         )
 
     db = create_db(effective_db_url)
-    condensed = structured_condense(raw_text)
-    token_original = estimate_tokens(raw_text)
-    token_condensed = estimate_tokens(condensed)
 
-    version = "memos.memory_card.v2"
-    trigger_reason = "query_no_cached_condensation"
-    trigger_details = {
-        "source": "api:/v1/query",
-        "memory_ids": list(memory_ids),
-    }
+    version = "memos.session_summary.v1"
+    if trigger_reason is None:
+        trigger_reason = "rolling_summary_refresh"
+    if trigger_details is None:
+        trigger_details = {"source": "api:/v1/query", "strategy": "rolling_summary_v1"}
 
     condensation_id = str(uuid.uuid4())
 
     with Session(db.engine) as session:
+        # Prefer DB fetch for determinism when memory ids are available.
+        messages: list[dict[str, str]] = []
+        if memory_ids:
+            try:
+                messages = _fetch_messages(session, memory_ids)
+            except Exception:
+                messages = []
+
+        prev_hint = ""
+        if prev_summary_text:
+            prev_hint = _card_to_plain_text(prev_summary_text)
+
+        if messages:
+            episodic = "\n".join(f"[{m['role']}] {m['text']}" for m in messages)
+        else:
+            episodic = (raw_text or "").strip()
+
+        combined = "\n".join([p for p in [prev_hint.strip(), episodic.strip()] if p])
+        condensed = structured_condense(combined)
+        token_original = estimate_tokens(combined)
+        token_condensed = estimate_tokens(condensed)
+
+        details = dict(trigger_details)
+        details.setdefault("schema", version)
+        if prev_summary_id:
+            details["prev_summary_id"] = prev_summary_id
+        if memory_ids:
+            details["new_memory_ids"] = list(memory_ids)
+
         session.execute(
             text(
                 """
@@ -175,10 +254,10 @@ def run_condensation_job(
                 "id": condensation_id,
                 "namespace": namespace,
                 "session_id": session_id,
-                                "version": version,
-                                "trigger_reason": trigger_reason,
-                                "trigger_details": json.dumps(trigger_details),
-                "source_memory_ids": memory_ids,
+                "version": version,
+                "trigger_reason": trigger_reason,
+                "trigger_details": json.dumps(details),
+                "source_memory_ids": (memory_ids or []),
                 "condensed_text": condensed,
                 "token_original": token_original,
                 "token_condensed": token_condensed,
@@ -196,7 +275,7 @@ def run_condensation_job(
                 "namespace": namespace,
                 "session_id": session_id,
                 "event_type": "CONDENSATION",
-                "details": "{}",
+                "details": json.dumps({"kind": "session_summary", "version": version}),
             },
         )
         session.commit()
@@ -208,12 +287,12 @@ def run_condensation_job(
     )
 
 
-def latest_condensation(session: Session, namespace: str, session_id: str) -> tuple[str, int, int] | None:
+def latest_condensation(session: Session, namespace: str, session_id: str) -> PersistedCondensation | None:
     row = (
         session.execute(
             text(
                 """
-                SELECT condensed_text, token_original, token_condensed
+                SELECT id, condensed_text, token_original, token_condensed, created_at
                 FROM condensations
                 WHERE namespace = :namespace AND session_id = :session_id
                 ORDER BY created_at DESC
@@ -227,4 +306,10 @@ def latest_condensation(session: Session, namespace: str, session_id: str) -> tu
     )
     if not row:
         return None
-    return (str(row["condensed_text"]), int(row["token_original"]), int(row["token_condensed"]))
+    return PersistedCondensation(
+        id=str(row["id"]),
+        condensed_text=str(row["condensed_text"]),
+        token_original=int(row["token_original"]),
+        token_condensed=int(row["token_condensed"]),
+        created_at=str(row["created_at"]),
+    )

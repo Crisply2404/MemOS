@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # L1 session window size
     l1_window_size: int = 20
 
+    # Session summary (condensation) refresh policy
+    summary_refresh_min_new_messages: int = 4
+    summary_refresh_max_batch: int = 40
+    summary_refresh_lock_seconds: int = 30
+
 
 def get_settings() -> Settings:
     return Settings()

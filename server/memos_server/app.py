@@ -17,8 +17,10 @@ from memos_server.api_models import (
     IngestResponse,
     MemoryTier,
     OpsAuditResponse,
+    OpsContextPacksResponse,
     OpsCondensationsResponse,
     OpsPipelineResponse,
+    OpsProceduralResponse,
     OpsStatsResponse,
     QueryRequest,
     QueryResponse,
@@ -26,11 +28,12 @@ from memos_server.api_models import (
     ResetSessionRequest,
     ResetSessionResponse,
 )
-from memos_server.db import create_db
-from memos_server.condensation import latest_condensation
+from memos_server.db import create_db, ensure_schema
+from memos_server.condensation import estimate_tokens, latest_condensation
 from memos_server.queue import Queues, create_queues
 from memos_server.embedding import fake_embedding
 from memos_server.l1_redis import L1Redis, append_message, clear_session, create_l1, get_window
+from memos_server.procedural import get_procedural_registry
 from memos_server.settings import Settings, get_settings
 
 
@@ -79,6 +82,11 @@ def create_app() -> FastAPI:
 
     settings = get_settings()
     db = create_db(settings.database_url)
+    try:
+        ensure_schema(db.engine)
+    except Exception:
+        # Unit tests may run without Postgres; schema will be created by docker init in real deployments.
+        pass
     l1 = create_l1(settings.redis_url, settings.l1_window_size)
     queues = create_queues(settings.redis_url)
 
@@ -95,6 +103,14 @@ def create_app() -> FastAPI:
 
     def get_queues() -> Queues:
         return queues
+
+    def _summary_lock_key(namespace: str, session_id: str) -> str:
+        return f"memos:summary_lock:{namespace}:{session_id}"
+
+    def _try_acquire_summary_lock(l1_store: L1Redis, namespace: str, session_id: str, ttl_seconds: int) -> bool:
+        # Avoid enqueuing duplicate summary jobs for the same session on rapid consecutive queries.
+        key = _summary_lock_key(namespace, session_id)
+        return bool(l1_store.client.set(key, "1", nx=True, ex=ttl_seconds))
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -317,25 +333,72 @@ def create_app() -> FastAPI:
 
         raw_combined = "\n".join(["[L1]" + "\n" + l1_text] + [f"[L2 score={c.score:.3f}] {c.text}" for c in chunks])
 
-        # 2) Try to reuse latest persisted condensation (produced by worker).
+        # 2) Session summary snapshots (industry-aligned episodic condensation).
+        # - Scope: (namespace, session_id)
+        # - Policy: refresh asynchronously when enough new episodic messages arrived.
         persisted = latest_condensation(session, req.namespace, req.session_id)
+        condensation_cache_hit = bool(persisted)
+        condensation_enqueued = False
+
         if persisted:
-            condensation_cache_hit = True
-            condensed, token_original, token_condensed = persisted
+            condensed = persisted.condensed_text
+            token_original = persisted.token_original
+            token_condensed = persisted.token_condensed
         else:
-            condensation_cache_hit = False
-            # If no condensation exists yet, enqueue a background job and return a simple fallback.
-            memory_ids = [c.id for c in chunks]
+            condensed = raw_combined[:240] + ("..." if len(raw_combined) > 240 else "")
+            token_original = estimate_tokens(raw_combined)
+            token_condensed = estimate_tokens(condensed)
+
+        since = persisted.created_at if persisted else "1970-01-01T00:00:00Z"
+        new_rows = (
+            session.execute(
+                text(
+                    """
+                    SELECT id, role, text, created_at
+                    FROM memories
+                    WHERE namespace = :namespace
+                      AND session_id = :session_id
+                      AND created_at > :since
+                    ORDER BY created_at ASC
+                    LIMIT :limit
+                    """
+                ),
+                {
+                    "namespace": req.namespace,
+                    "session_id": req.session_id,
+                    "since": since,
+                    "limit": int(cfg.summary_refresh_max_batch),
+                },
+            )
+            .mappings()
+            .all()
+        )
+        new_memory_ids = [str(r["id"]) for r in new_rows]
+
+        should_refresh = (not persisted and len(new_memory_ids) > 0) or (
+            persisted and len(new_memory_ids) >= int(cfg.summary_refresh_min_new_messages)
+        )
+
+        if should_refresh and _try_acquire_summary_lock(
+            l1_store, req.namespace, req.session_id, ttl_seconds=int(cfg.summary_refresh_lock_seconds)
+        ):
+            trigger_reason = "bootstrap_summary" if not persisted else "new_messages_threshold"
+            trigger_details = {
+                "source": "api:/v1/query",
+                "strategy": "rolling_summary_v1",
+                "new_message_count": len(new_memory_ids),
+            }
             q.condensation.enqueue(
                 "memos_server.condensation.run_condensation_job",
                 namespace=req.namespace,
                 session_id=req.session_id,
-                memory_ids=memory_ids,
-                raw_text=raw_combined,
+                memory_ids=new_memory_ids,
+                prev_summary_id=(persisted.id if persisted else None),
+                prev_summary_text=(persisted.condensed_text if persisted else None),
+                trigger_reason=trigger_reason,
+                trigger_details=trigger_details,
             )
-            condensed = raw_combined[:240] + ("..." if len(raw_combined) > 240 else "")
-            token_original = max(1, len(raw_combined) // 4)
-            token_condensed = max(1, len(condensed) // 4)
+            condensation_enqueued = True
 
         similarity = float(chunks[0].score) if chunks else 0.0
 
@@ -356,12 +419,67 @@ def create_app() -> FastAPI:
                         "top_k": req.top_k,
                         "l2_hits": len(chunks),
                         "condensation_cache_hit": condensation_cache_hit,
+                        "condensation_enqueued": condensation_enqueued,
                         "rerank": {
                             "method": "deterministic_overlap_v1",
                             "weights": {"vector": 0.75, "overlap": 0.25},
                         },
                     }
                 ),
+            },
+        )
+
+        # 3) Working memory snapshot: context pack (query-scoped, replayable).
+        prompt_registry, tool_registry = get_procedural_registry()
+        context_pack_id = str(uuid.uuid4())
+        context_pack = {
+            "schema": "memos.context_pack.v1",
+            "namespace": req.namespace,
+            "session_id": req.session_id,
+            "query_text": req.query,
+            "procedural": {
+                "prompt": prompt_registry.get("default_query_prompt_v1", {}),
+                "tools": tool_registry.get("tools", []),
+            },
+            "working_memory": {
+                "l1_window": l1_msgs,
+                "session_summary": condensed,
+                "session_summary_id": (persisted.id if persisted else None),
+            },
+            "retrieval": {
+                "raw_chunks": [c.model_dump() for c in chunks],
+            },
+        }
+        session.execute(
+            text(
+                """
+                INSERT INTO context_packs (id, namespace, session_id, query_text, session_summary_id, retrieved_memory_ids, pack)
+                VALUES (:id, :namespace, :session_id, :query_text, :session_summary_id, :retrieved_memory_ids, CAST(:pack AS jsonb))
+                """
+            ),
+            {
+                "id": context_pack_id,
+                "namespace": req.namespace,
+                "session_id": req.session_id,
+                "query_text": req.query,
+                "session_summary_id": (persisted.id if persisted else None),
+                "retrieved_memory_ids": [c.id for c in chunks],
+                "pack": json.dumps(context_pack, ensure_ascii=False),
+            },
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO audit_logs (id, namespace, session_id, event_type, details)
+                VALUES (:id, :namespace, :session_id, :event_type, CAST(:details AS jsonb))
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "namespace": req.namespace,
+                "session_id": req.session_id,
+                "event_type": "CONTEXT_PACK",
+                "details": json.dumps({"context_pack_id": context_pack_id, "retrieved": len(chunks)}),
             },
         )
         session.commit()
@@ -380,6 +498,11 @@ def create_app() -> FastAPI:
                     "components": {"vector_weight": 0.75, "overlap_weight": 0.25},
                 }
             ],
+            session_summary_id=(persisted.id if persisted else None),
+            session_summary_cache_hit=condensation_cache_hit,
+            session_summary_enqueued=condensation_enqueued,
+            context_pack_id=context_pack_id,
+            context_pack=context_pack,
         )
 
     @app.get("/v1/ops/stats", response_model=OpsStatsResponse)
@@ -409,6 +532,11 @@ def create_app() -> FastAPI:
             token_savings=int(token_savings),
             compression_ratio=float(ratio),
         )
+
+    @app.get("/v1/ops/procedural", response_model=OpsProceduralResponse)
+    def ops_procedural() -> OpsProceduralResponse:
+        prompt_registry, tool_registry = get_procedural_registry()
+        return OpsProceduralResponse(prompt_registry=prompt_registry, tool_registry=tool_registry)
 
     @app.get("/v1/ops/pipeline", response_model=OpsPipelineResponse)
     def ops_pipeline(
@@ -571,6 +699,65 @@ def create_app() -> FastAPI:
             )
 
         return OpsCondensationsResponse(condensations=condensations)
+
+    @app.get("/v1/ops/context_packs", response_model=OpsContextPacksResponse)
+    def ops_context_packs(
+        namespace: str | None = None,
+        session_id: str | None = None,
+        limit: int = 20,
+        include_pack: bool = False,
+        session: Session = Depends(get_db_session),
+    ) -> OpsContextPacksResponse:
+        where: list[str] = []
+        params: dict[str, object] = {"limit": int(max(1, min(200, limit)))}
+        if namespace:
+            where.append("namespace = :namespace")
+            params["namespace"] = namespace
+        if session_id:
+            where.append("session_id = :session_id")
+            params["session_id"] = session_id
+        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+        rows = (
+            session.execute(
+                text(
+                    f"""
+                    SELECT id, namespace, session_id, query_text, session_summary_id, retrieved_memory_ids, pack, created_at
+                    FROM context_packs
+                    {where_sql}
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+
+        packs: list[dict[str, object]] = []
+        for r in rows:
+            pack_obj: dict[str, object] = {}
+            if include_pack:
+                try:
+                    pack_obj = json.loads(str(r["pack"]))
+                except Exception:
+                    pack_obj = {}
+            retrieved_ids = list(r["retrieved_memory_ids"] or [])
+            packs.append(
+                {
+                    "id": str(r["id"]),
+                    "namespace": str(r["namespace"]),
+                    "session_id": str(r["session_id"]),
+                    "query_text": str(r["query_text"]),
+                    "session_summary_id": (str(r["session_summary_id"]) if r["session_summary_id"] else None),
+                    "retrieved_count": len(retrieved_ids),
+                    "created_at": str(r["created_at"]),
+                    "pack": pack_obj,
+                }
+            )
+
+        return OpsContextPacksResponse(context_packs=packs)
 
     @app.post("/v1/sessions/reset", response_model=ResetSessionResponse)
     def reset_session(

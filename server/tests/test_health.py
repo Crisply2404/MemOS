@@ -33,3 +33,5 @@ class TestHealth(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         spec = res.json()
         self.assertIn("/v1/ops/condensations", (spec.get("paths") or {}))
+        self.assertIn("/v1/ops/context_packs", (spec.get("paths") or {}))
+        self.assertIn("/v1/ops/procedural", (spec.get("paths") or {}))

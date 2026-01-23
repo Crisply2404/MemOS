@@ -66,6 +66,14 @@ class QueryResponse(BaseModel):
     token_usage_original: int
     token_usage_condensed: int
     rerank_debug: list[RerankDebug] = Field(default_factory=list)
+    # Industry-aligned debug surfaces:
+    # - session summary: episodic condensation snapshots (per session)
+    # - context pack: working memory assembled for this query
+    session_summary_id: str | None = None
+    session_summary_cache_hit: bool = False
+    session_summary_enqueued: bool = False
+    context_pack_id: str | None = None
+    context_pack: dict[str, Any] = Field(default_factory=dict)
 
 
 class OpsStatsResponse(BaseModel):
@@ -125,6 +133,26 @@ class OpsCondensation(BaseModel):
 
 class OpsCondensationsResponse(BaseModel):
     condensations: list[OpsCondensation]
+
+
+class OpsContextPack(BaseModel):
+    id: str
+    namespace: str
+    session_id: str
+    query_text: str
+    session_summary_id: str | None = None
+    retrieved_count: int = 0
+    created_at: str
+    pack: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpsContextPacksResponse(BaseModel):
+    context_packs: list[OpsContextPack]
+
+
+class OpsProceduralResponse(BaseModel):
+    prompt_registry: dict[str, Any] = Field(default_factory=dict)
+    tool_registry: dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):

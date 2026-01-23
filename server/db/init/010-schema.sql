@@ -52,4 +52,18 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_namespace_created_at ON audit_logs(namespace, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS context_packs (
+  id UUID PRIMARY KEY,
+  namespace TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  query_text TEXT NOT NULL,
+  session_summary_id UUID,
+  retrieved_memory_ids UUID[] NOT NULL DEFAULT '{}'::uuid[],
+  pack JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_packs_namespace_session_created_at
+  ON context_packs(namespace, session_id, created_at DESC);
+
 COMMIT;
