@@ -4,6 +4,26 @@ import { MemoryTier } from '../types';
 import { opsPipeline } from '../utils/api';
 import { Badge } from './ui/Card';
 
+type MemoryCard = {
+  schema?: string;
+  risks?: string[];
+  actions?: string[];
+  pitfalls?: string[];
+  commands?: string[];
+  raw_excerpt?: string;
+};
+
+function tryParseMemoryCard(text: string): MemoryCard | null {
+  const t = (text || '').trim();
+  if (!t || t[0] !== '{') return null;
+  try {
+    const obj = JSON.parse(t) as MemoryCard;
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch {
+    return null;
+  }
+}
+
 interface LogItem {
   id: string;
   text: string;
@@ -40,21 +60,31 @@ export const MemoryPipeline: React.FC<{ namespace?: string; sessionId?: string }
   const [activeSessionId, setActiveSessionId] = useState<string>(sessionId || '');
   const [vaultLimit, setVaultLimit] = useState<number>(10);
 
+  const processingStage: 'idle' | 'summarizing' | 'extracting' = useMemo(() => {
+    if (pipelineQueueCount > 0) return 'summarizing';
+    if (vaultItems.length > 0) return 'extracting';
+    return 'idle';
+  }, [pipelineQueueCount, vaultItems.length]);
+
   const processingItem: LogItem | null = useMemo(() => {
-    if (pipelineQueueCount <= 0) return null;
+    if (processingStage === 'idle') return null;
+    if (processingStage === 'summarizing') {
+      return {
+        id: `job-${pipelineQueueCount}`,
+        text: 'Condensation queue is processing recent sessions…',
+        tokens: 0,
+        timestamp: Date.now(),
+        status: 'processing'
+      };
+    }
     return {
-      id: `job-${pipelineQueueCount}`,
-      text: 'Condensation queue is processing recent sessions…',
+      id: 'extract-1',
+      text: 'Condensation completed. Extracting structured fields for Vault…',
       tokens: 0,
       timestamp: Date.now(),
-      status: 'processing'
+      status: 'processed'
     };
-  }, [pipelineQueueCount]);
-
-  const processingStage: 'idle' | 'summarizing' | 'extracting' = useMemo(() => {
-    if (!processingItem) return 'idle';
-    return 'summarizing';
-  }, [processingItem]);
+  }, [processingStage, pipelineQueueCount]);
 
   // Keep the filter aligned with the currently selected session by default.
   // If the user manually edits the filter, they can still override it.
@@ -88,12 +118,21 @@ export const MemoryPipeline: React.FC<{ namespace?: string; sessionId?: string }
           const original = row.token_original;
           const condensed = row.token_condensed;
           const saved = Math.max(0, original - condensed);
+          const card = tryParseMemoryCard(row.condensed_text);
+          const tags = [
+            ...(card?.risks || card?.pitfalls || []).slice(0, 2),
+            ...(card?.actions || card?.commands || []).slice(0, 1),
+          ].filter(Boolean);
+          const summaryText =
+            (card?.raw_excerpt && card.raw_excerpt.trim().length > 0)
+              ? card.raw_excerpt
+              : row.condensed_text.slice(0, 140) + (row.condensed_text.length > 140 ? '…' : '');
 
           return {
             id: row.id,
             originalId: row.session_id,
-            summary: `Condensed session ${row.session_id} (${row.namespace})` ,
-            entities: [row.namespace],
+            summary: summaryText,
+            entities: (tags.length > 0 ? tags : [row.namespace]),
             tier: MemoryTier.L2_SEMANTIC,
             savedTokens: saved,
             timestamp: safeParseTimestamp(row.created_at)

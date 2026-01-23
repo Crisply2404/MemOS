@@ -1,6 +1,7 @@
 import { ArrowRight, BrainCircuit, Database, RotateCcw, Send, Zap } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { ChatMessage, RetrievalContext } from '../types';
+import { CondensationHistory } from './CondensationHistory';
 import { Badge } from './ui/Card';
 
 type MemoryCard = {
@@ -20,9 +21,21 @@ type MemoryCard = {
 
 function tryParseMemoryCard(text: string): MemoryCard | null {
   const t = (text || '').trim();
-  if (!t || t[0] !== '{') return null;
+  if (!t) return null;
+
+  const parseOnce = (value: string): unknown | null => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  };
+
+  const obj1 = t[0] === '{' || t[0] === '"' ? parseOnce(t) : null;
+  const obj2 =
+    typeof obj1 === 'string' && obj1.trim().startsWith('{') ? parseOnce(obj1.trim()) : obj1;
   try {
-    const obj = JSON.parse(t);
+    const obj = obj2 as any;
     if (obj && (obj.schema === 'memos.memory_card.v1' || obj.schema === 'memos.memory_card.v2')) return obj as MemoryCard;
   } catch {
     // Not JSON.
@@ -126,13 +139,13 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
             {/* Put identifiers in a single truncating row so they don't wrap into a second line. */}
             <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
               <div
-                className="min-w-0 max-w-[52%] px-2 py-0.5 rounded text-xs font-mono border bg-blue-500/10 text-blue-400 border-blue-500/20"
+                className="min-w-0 max-w-[52%] h-7 px-2 rounded text-xs font-mono border bg-blue-500/10 text-blue-400 border-blue-500/20 inline-flex items-center gap-1 overflow-hidden leading-none"
                 title={namespace || 'Project_X'}
               >
                 <span className="uppercase tracking-wider text-[10px] text-blue-300/80">namespace:</span>{' '}
-                <span className="inline-block max-w-full align-bottom">
+                <span className="min-w-0 flex-1">
                   <span
-                    className="inline-block max-w-full whitespace-nowrap overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                    className="block w-full whitespace-nowrap overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                   >
                     {namespace || 'Project_X'}
                   </span>
@@ -140,13 +153,13 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
               </div>
 
               <div
-                className="min-w-0 max-w-[48%] px-2 py-0.5 rounded text-xs font-mono border bg-purple-500/10 text-purple-400 border-purple-500/20"
+                className="min-w-0 max-w-[48%] h-7 px-2 rounded text-xs font-mono border bg-purple-500/10 text-purple-400 border-purple-500/20 inline-flex items-center gap-1 overflow-hidden leading-none"
                 title={sessionId || ''}
               >
                 <span className="uppercase tracking-wider text-[10px] text-purple-300/80">session:</span>{' '}
-                <span className="inline-block max-w-full align-bottom">
+                <span className="min-w-0 flex-1">
                   <span
-                    className="inline-block max-w-full whitespace-nowrap overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                    className="block w-full whitespace-nowrap overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                   >
                     {sessionId || ''}
                   </span>
@@ -444,13 +457,24 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
                              </details>
                            ) : null}
                          </div>
-                       ) : (
-                         retrievalContext.condensedText
-                       )}
-                    </>
-                  ) : "Waiting for optimization..."}
-                </div>
-              </div>
+                        ) : (
+                          retrievalContext.condensedText
+                        )}
+
+                        {namespace && sessionId ? (
+                          <details className="mt-3 bg-black/10 border border-mem-border rounded-lg p-2">
+                            <summary className="cursor-pointer text-xs text-gray-400">
+                              Show summary history (replay)
+                            </summary>
+                            <div className="mt-2">
+                              <CondensationHistory namespace={namespace} sessionId={sessionId} />
+                            </div>
+                          </details>
+                        ) : null}
+                     </>
+                   ) : "Waiting for optimization..."}
+                 </div>
+               </div>
            </div>
         </div>
       </div>

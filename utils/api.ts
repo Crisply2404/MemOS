@@ -84,6 +84,8 @@ export type OpsPipelineResponse = {
     id: string;
     namespace: string;
     session_id: string;
+    version: string;
+    condensed_text: string;
     token_original: number;
     token_condensed: number;
     created_at: string;
@@ -135,6 +137,53 @@ export async function opsAudit(params?: {
 
   const suffix = qs.toString().length > 0 ? `?${qs.toString()}` : '';
   return requestJson<OpsAuditResponse>(`/v1/ops/audit${suffix}`, {
+    method: 'GET'
+  });
+}
+
+export type OpsCondensation = {
+  id: string;
+  namespace: string;
+  session_id: string;
+  version: string;
+  trigger_reason: string | null;
+  trigger_details: Record<string, unknown>;
+  source_memory_ids: string[];
+  condensed_text: string;
+  token_original: number;
+  token_condensed: number;
+  created_at: string;
+};
+
+export type OpsCondensationsResponse = {
+  condensations: OpsCondensation[];
+};
+
+export async function opsCondensations(params?: {
+  namespace?: string;
+  session_id?: string;
+  limit?: number;
+}): Promise<OpsCondensationsResponse> {
+  const qs = new URLSearchParams();
+  if (params?.namespace) qs.set('namespace', params.namespace);
+  if (params?.session_id) qs.set('session_id', params.session_id);
+  if (typeof params?.limit === 'number') qs.set('limit', String(params.limit));
+
+  const suffix = qs.toString().length > 0 ? `?${qs.toString()}` : '';
+  return requestJson<OpsCondensationsResponse>(`/v1/ops/condensations${suffix}`, {
+    method: 'GET'
+  });
+}
+
+export type OpsStatsResponse = {
+  total_memories: number;
+  active_contexts: number;
+  token_savings: number;
+  compression_ratio: number;
+};
+
+export async function opsStats(): Promise<OpsStatsResponse> {
+  return requestJson<OpsStatsResponse>('/v1/ops/stats', {
     method: 'GET'
   });
 }

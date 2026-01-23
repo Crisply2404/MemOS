@@ -5,8 +5,8 @@ import { Dashboard } from './components/Dashboard';
 import { MemoryPipeline } from './components/MemoryPipeline';
 import { RagDebugger } from './components/RagDebugger';
 import { SemanticRadar } from './components/SemanticRadar'; // New Import
-import { ChatMessage, MemoryNode, RetrievalContext, SystemStats, ViewMode } from './types';
-import { devSeed, ingest, query as queryApi, resetSession } from './utils/api';
+import { ChatMessage, MemoryNode, MemoryTier, RetrievalContext, SystemStats, ViewMode } from './types';
+import { devSeed, ingest, opsCondensations, opsStats, query as queryApi, resetSession } from './utils/api';
 import { generateMockMemories } from './utils/mockData';
 
 const SidebarItem = ({ 
@@ -41,10 +41,10 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [systemStats, setSystemStats] = useState<SystemStats>({
-    totalMemories: 14052,
-    activeContexts: 3,
-    tokenSavings: 845200,
-    compressionRatio: 0.82
+    totalMemories: 0,
+    activeContexts: 0,
+    tokenSavings: 0,
+    compressionRatio: 0
   });
 
   const [namespace, setNamespace] = useState(() => {
@@ -137,6 +137,32 @@ const App: React.FC = () => {
     setMemories(generateMockMemories(150));
   }, []);
 
+  useEffect(() => {
+    let canceled = false;
+
+    const load = async () => {
+      try {
+        const s = await opsStats();
+        if (canceled) return;
+        setSystemStats({
+          totalMemories: s.total_memories,
+          activeContexts: s.active_contexts,
+          tokenSavings: s.token_savings,
+          compressionRatio: s.compression_ratio
+        });
+      } catch {
+        // keep last known stats
+      }
+    };
+
+    void load();
+    const interval = setInterval(load, 2000);
+    return () => {
+      canceled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   const handleSendMessage = async (text: string) => {
     const newUserMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -149,10 +175,24 @@ const App: React.FC = () => {
     setIsProcessing(true);
     setApiError(null);
 
+    const stableNamespace = namespace;
+    const stableSessionId = sessionId;
+
+    const isMemoryCardJson = (value: string): boolean => {
+      const t = (value || '').trim();
+      if (!t || t[0] !== '{') return false;
+      try {
+        const obj = JSON.parse(t);
+        return obj && (obj.schema === 'memos.memory_card.v1' || obj.schema === 'memos.memory_card.v2');
+      } catch {
+        return false;
+      }
+    };
+
     try {
       await ingest({
-        namespace,
-        session_id: sessionId,
+        namespace: stableNamespace,
+        session_id: stableSessionId,
         role: 'user',
         text,
         metadata: {
@@ -162,8 +202,8 @@ const App: React.FC = () => {
       });
 
       const response = await queryApi({
-        namespace,
-        session_id: sessionId,
+        namespace: stableNamespace,
+        session_id: stableSessionId,
         query: text,
         top_k: 6
       });
@@ -181,6 +221,40 @@ const App: React.FC = () => {
 
       setCurrentContext(context);
 
+      // The API enqueues condensation asynchronously; the first query may return a fallback string.
+      // Poll the persisted condensation for this session and upgrade the UI to a structured card when ready.
+      if (!isMemoryCardJson(response.condensed_summary)) {
+        const responseId = response.id;
+        const trySync = async (delayMs: number) => {
+          await new Promise((r) => setTimeout(r, delayMs));
+          const res = await opsCondensations({ namespace: stableNamespace, session_id: stableSessionId, limit: 1 });
+          const latest = res.condensations && res.condensations.length > 0 ? res.condensations[0] : null;
+          if (!latest) return false;
+
+          setCurrentContext((prev) => {
+            if (!prev) return prev;
+            if (prev.id !== responseId) return prev;
+            return {
+              ...prev,
+              condensedText: latest.condensed_text,
+              tokenUsageOriginal: latest.token_original,
+              tokenUsageCondensed: latest.token_condensed,
+            };
+          });
+          return true;
+        };
+
+        try {
+          for (const delay of [600, 900, 1200, 1600, 2200, 3000]) {
+            // eslint-disable-next-line no-await-in-loop
+            const ok = await trySync(delay);
+            if (ok) break;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       const newMemory: MemoryNode = {
         id: `new-${Date.now()}`,
         content: text,
@@ -188,15 +262,9 @@ const App: React.FC = () => {
         importanceScore: 1,
         embedding: [Math.random() * 2, Math.random() * 2, Math.random() * 2],
         timestamp: Date.now(),
-        namespace
+        namespace: stableNamespace
       };
       setMemories(prev => [...prev, newMemory]);
-
-      setSystemStats(prev => ({
-        ...prev,
-        totalMemories: prev.totalMemories + 1,
-        tokenSavings: prev.tokenSavings + (context.tokenUsageOriginal - context.tokenUsageCondensed)
-      }));
 
       const agentMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -325,7 +393,7 @@ const App: React.FC = () => {
 
             {view === ViewMode.RADAR && (
               <div className="h-[calc(100vh-8rem)]">
-                 <SemanticRadar />
+                 <SemanticRadar namespace={namespace} sessionId={sessionId} />
               </div>
             )}
             

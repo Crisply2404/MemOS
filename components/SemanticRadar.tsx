@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Search, Radar, Target, Filter, AlertTriangle, CheckCircle, Database, Globe, MessageSquare } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle, Database, Filter, Globe, MessageSquare, Radar, Search, Target } from 'lucide-react';
+import { query as queryApi } from '../utils/api';
 import { Badge } from './ui/Card';
 
 interface RadarBlip {
@@ -11,31 +12,31 @@ interface RadarBlip {
   angle: number; // 0-360 degrees
 }
 
-const MOCK_QUERY = "project phoenix payment api limits";
+function hashAngle(value: string): number {
+  let h = 0;
+  for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
 
-const MOCK_BLIPS: RadarBlip[] = [
-  // High Relevance (Green Zone)
-  { id: '1', content: "Project Phoenix API v2: Rate Limits & Quotas (Doc)", source: 'docs', rawScore: 0.88, rerankScore: 0.95, angle: 150 },
-  { id: '2', content: "Q: What are the payment limits for Phoenix? A: 10k/day", source: 'history', rawScore: 0.85, rerankScore: 0.92, angle: 30 },
-  
-  // False Positives (High Vector Score, Low Semantic Relevance) -> The "Trap"
-  { id: '3', content: "Phoenix Project Team Holiday Schedule (No API info)", source: 'docs', rawScore: 0.82, rerankScore: 0.25, angle: 180 },
-  { id: '4', content: "Old Legacy Payment API (Depreciated 2020)", source: 'history', rawScore: 0.79, rerankScore: 0.30, angle: 60 },
-  { id: '5', content: "Global Phoenix Birds Conservation Limits", source: 'web', rawScore: 0.76, rerankScore: 0.10, angle: 300 },
-  
-  // Mid Relevance
-  { id: '6', content: "General API Authentication Headers", source: 'docs', rawScore: 0.65, rerankScore: 0.60, angle: 200 },
-  
-  // Low Relevance / Noise
-  { id: '7', content: "Marketing budget for Q4", source: 'history', rawScore: 0.45, rerankScore: 0.05, angle: 80 },
-  { id: '8', content: "Stripe vs PayPal comparison", source: 'web', rawScore: 0.55, rerankScore: 0.40, angle: 260 },
-];
+function clamp01(value: number): number {
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
 
-export const SemanticRadar: React.FC = () => {
-  const [query, setQuery] = useState(MOCK_QUERY);
+function extractRerankScore(meta: Record<string, unknown> | undefined, fallback: number): number {
+  const v = meta?.rerank_score;
+  return typeof v === 'number' && Number.isFinite(v) ? clamp01(v) : fallback;
+}
+
+export const SemanticRadar: React.FC<{ namespace: string; sessionId: string }> = ({ namespace, sessionId }) => {
+  const [query, setQuery] = useState('');
   const [isRerankEnabled, setIsRerankEnabled] = useState(false);
   const [activeBlip, setActiveBlip] = useState<RadarBlip | null>(null);
   const [scanAngle, setScanAngle] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [blips, setBlips] = useState<RadarBlip[]>([]);
 
   // Radar Animation Loop
   useEffect(() => {
@@ -44,6 +45,41 @@ export const SemanticRadar: React.FC = () => {
     }, 20);
     return () => clearInterval(interval);
   }, []);
+
+  const canQuery = useMemo(
+    () => query.trim().length > 0 && namespace.trim().length > 0 && sessionId.trim().length > 0,
+    [query, namespace, sessionId]
+  );
+
+  const runQuery = async () => {
+    if (!canQuery) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await queryApi({
+        namespace,
+        session_id: sessionId,
+        query: query.trim(),
+        top_k: 12,
+      });
+
+      const next: RadarBlip[] = (res.raw_chunks || []).map((c) => ({
+        id: c.id,
+        content: c.text,
+        source: 'history',
+        rawScore: clamp01(c.score),
+        rerankScore: extractRerankScore(c.metadata || {}, clamp01(c.score)),
+        angle: hashAngle(c.id),
+      }));
+
+      setBlips(next);
+      setActiveBlip(next.length > 0 ? next[0] : null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to query');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const getRadius = (score: number) => {
     // Score 1.0 -> Radius 0% (Center)
@@ -88,21 +124,32 @@ export const SemanticRadar: React.FC = () => {
 
            {/* Query Simulation */}
            <div className="space-y-2 mb-6">
-             <label className="text-xs font-mono text-gray-500 uppercase">Active Simulation Query</label>
+             <label className="text-xs font-mono text-gray-500 uppercase">Query</label>
              <div className="flex gap-2">
-               <div className="flex-1 bg-black/30 border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 font-mono">
-                 {query}
-               </div>
-               <button onClick={() => setQuery(MOCK_QUERY)} className="bg-brand-primary/20 text-brand-primary p-2 rounded hover:bg-brand-primary/30">
+               <input
+                 value={query}
+                 onChange={(e) => setQuery(e.target.value)}
+                 placeholder="输入一个问题，查询本 session 的记忆候选…"
+                 className="flex-1 bg-black/30 border border-gray-700 rounded px-3 py-2 text-sm text-gray-300 font-mono"
+               />
+               <button
+                 onClick={() => void runQuery()}
+                 disabled={!canQuery || isLoading}
+                 className="bg-brand-primary/20 text-brand-primary p-2 rounded hover:bg-brand-primary/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                 title={!canQuery ? '需要 query + namespace + sessionId' : 'Run query'}
+               >
                  <Search size={18} />
                </button>
+             </div>
+             <div className="text-[11px] text-gray-500 font-mono">
+               ns={namespace} {' | '} session={sessionId}
              </div>
            </div>
 
            {/* Optimization Toggle */}
            <div className="bg-white/5 rounded-lg p-4 border border-mem-border">
              <div className="flex justify-between items-center mb-2">
-               <span className="font-semibold text-gray-200">Semantic Reranker (Cross-Encoder)</span>
+               <span className="font-semibold text-gray-200">Reranker（deterministic heuristic）</span>
                <button 
                  onClick={() => setIsRerankEnabled(!isRerankEnabled)}
                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isRerankEnabled ? 'bg-brand-primary' : 'bg-gray-700'}`}
@@ -110,13 +157,19 @@ export const SemanticRadar: React.FC = () => {
                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isRerankEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                </button>
              </div>
-             <p className="text-xs text-gray-400">
-               {isRerankEnabled 
-                 ? "Status: ACTIVE. Eliminating vector hallucinations and keyword-based false positives."
-                 : "Status: OFFLINE. Showing raw Approximate Nearest Neighbor (ANN) scores. Expect noise."}
-             </p>
-           </div>
-        </div>
+              <p className="text-xs text-gray-400">
+                {isRerankEnabled 
+                  ? "Status: ACTIVE. Using vector score + token overlap for a stable rerank score (no LLM)."
+                  : "Status: OFFLINE. Showing raw vector similarity scores only."}
+              </p>
+            </div>
+
+            {error && (
+              <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm text-red-200">
+                {error}
+              </div>
+            )}
+         </div>
 
         {/* Legend / Stats */}
         <div className="flex-1 bg-mem-panel border border-mem-border rounded-xl p-6 overflow-y-auto">
@@ -211,12 +264,12 @@ export const SemanticRadar: React.FC = () => {
             <div className="absolute right-0 top-1/2 w-[100px] h-[40px] bg-gradient-to-t from-transparent via-brand-primary/20 to-transparent blur-md -translate-y-1/2 translate-x-10 rotate-90" />
           </div>
 
-          {/* Data Blips */}
-          {MOCK_BLIPS.map((blip) => {
-             const pos = getBlipPosition(blip);
-             const isFiltered = isRerankEnabled && blip.rerankScore < 0.6;
-             
-             return (
+           {/* Data Blips */}
+           {blips.map((blip) => {
+              const pos = getBlipPosition(blip);
+              const isFiltered = isRerankEnabled && blip.rerankScore < 0.6;
+              
+              return (
                <div
                  key={blip.id}
                  className={`absolute w-3 h-3 rounded-full -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all duration-1000 ease-out z-20 hover:z-30 hover:scale-150 ${getZoneColor(pos.score)}`}
@@ -228,13 +281,13 @@ export const SemanticRadar: React.FC = () => {
                  onMouseEnter={() => setActiveBlip(blip)}
                  // onMouseLeave={() => setActiveBlip(null)}
                >
-                 {/* ID Label */}
-                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-mono opacity-0 hover:opacity-100 whitespace-nowrap pointer-events-none">
-                    #{blip.id}
-                 </span>
-               </div>
-             );
-          })}
+                  {/* ID Label */}
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-mono opacity-0 hover:opacity-100 whitespace-nowrap pointer-events-none">
+                     #{blip.id.slice(-6)}
+                  </span>
+                </div>
+              );
+           })}
         </div>
 
         {/* Axis Labels */}
