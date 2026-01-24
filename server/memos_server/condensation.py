@@ -56,12 +56,35 @@ def structured_condense(raw_text: str) -> str:
 
     text_value = raw_text.strip()
 
-    # Heuristics: extract common "action-like" lines and numeric identifiers.
-    actions: list[str] = []
-    for line in text_value.splitlines():
+    def clean_line(line: str) -> str:
         s = line.strip()
         if not s:
-            continue
+            return ""
+        if s.startswith("[L1]"):
+            return ""
+        s = re.sub(r"^\[L2 score=[-\d.]+\]\s*", "", s)
+        s = re.sub(r"^\[(user|agent|system|tool)\]\s*", "", s)
+        return s.strip()
+
+    cleaned_lines = [clean_line(line) for line in text_value.splitlines()]
+    cleaned_lines = [s for s in cleaned_lines if s]
+
+    def uniq(items: list[str]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for x in items:
+            k = x.strip()
+            if not k:
+                continue
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(k)
+        return out
+
+    # Heuristics: extract common "action-like" lines and numeric identifiers.
+    actions: list[str] = []
+    for s in cleaned_lines:
         if s.startswith("`") and s.endswith("`"):
             s = s.strip("`").strip()
         if re.match(r"^(docker|git|npm|pnpm|yarn|python|pip|uvicorn|curl)\b", s):
@@ -76,12 +99,51 @@ def structured_condense(raw_text: str) -> str:
     if "localhost" in lowered or "127.0.0.1" in lowered:
         risks.append("Container vs host networking mismatch (localhost)")
 
+    facts: list[str] = []
+    preferences: list[str] = []
+    constraints: list[str] = []
+    decisions: list[str] = []
+
+    # Facts: extract stable technical anchors that help debugging and demos.
+    for s in cleaned_lines:
+        if "/v1/" in s:
+            facts.append("API uses versioned prefix (/v1/*)")
+
+        m = re.search(r"\b(postgres|redis)\b", s.lower())
+        if m and re.search(r"\b\d{4,5}\b", s):
+            port = re.search(r"\b(\d{4,5})\b", s)
+            if port:
+                facts.append(f"{m.group(1)} port {port.group(1)} mentioned")
+
+        if "memos" in s.lower() and ("我们在做" in s or "MemOS" in s):
+            facts.append("Project: MemOS (agent memory / context governance)")
+
+        if "pgvector" in s.lower():
+            facts.append("L2 uses Postgres + pgvector for vector search")
+        if "rq" in s.lower() or "worker" in s.lower():
+            facts.append("Async worker processes background jobs (RQ)")
+
+    # Preferences/constraints/decisions: read from user-style directives.
+    for s in cleaned_lines:
+        if any(k in s for k in ["我希望", "我倾向于", "我更喜欢", "prefer", "希望能", "希望"]):
+            preferences.append(s)
+        if any(k in s for k in ["必须", "不能", "不要", "不许", "保留", "禁止"]):
+            constraints.append(s)
+        if any(k in s for k in ["决定", "选择", "我选", "选A", "选B", "keep", "保留 /v1", "保留/v1"]):
+            decisions.append(s)
+
+    # Keep concise: avoid overfitting and keep only a few items.
+    facts = uniq(facts)[:8]
+    preferences = uniq(preferences)[:6]
+    constraints = uniq(constraints)[:6]
+    decisions = uniq(decisions)[:6]
+
     card = {
         "schema": "memos.memory_card.v2",
-        "facts": [],
-        "preferences": [],
-        "constraints": [],
-        "decisions": [],
+        "facts": facts,
+        "preferences": preferences,
+        "constraints": constraints,
+        "decisions": decisions,
         "risks": risks,
         "actions": actions[:20],
         # Backwards-compatible aliases for older UI / stored rows.

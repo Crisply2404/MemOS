@@ -187,33 +187,52 @@ flowchart LR
 
 ---
 
-## 6. 七天冲刺计划（优化版：以“对齐业界全图”为目标）
+## 6. 冲刺计划（不绑定天数：任务池 + 验证方式）
 
-> 原则：每一天都能回答三件事：交付物、验证方式、对标业界图里的哪个组件。
+> 原则：每个任务都要可验证（脚本/测试/接口），并能映射到业界参照图里的组件。
 
-### Day 1：完善 Memory Card 的核心 buckets（最小可用）
-- 目标：让 `facts/preferences/constraints/decisions` 不再永远为空（先规则版）
-- 验证：RAG Debugger 的 working memory 里能看到 buckets 有内容；并写入 session summary 快照
+### P0（先做：讲清楚 + 体验立刻提升）
 
-### Day 2：补齐 Private Knowledge Base ingestion（Semantic Memory 的关键缺口）
-- 目标：加入最小文档 ingestion（本地 md/txt → chunk → 入库 + embedding）
-- 验证：同一 query 能召回“文档 chunk”而不仅是对话事件（并可在 context pack 里看到来源）
+- **T1: Memory Card buckets 最小实装（rules-based）**
+  - 目标：`facts/preferences/constraints/decisions` 不再永远为空；能从会话文本里抽取出“可讲述”的结构化条目
+  - 对标：Episodic summary（Session Summary）
+  - 验证：`server/tests/test_condensation_card.py` 覆盖；UI 的 working memory card 能看到 buckets 有内容
 
-### Day 3：升级触发策略与解释字段
-- 目标：summary refresh 触发原因更合理（token 阈值/idle/每 N 条消息等）并写入 `trigger_details`
-- 验证：`/v1/ops/condensations` 里能看到触发原因与输入集合的变化
+- **T2: Private Knowledge Base ingestion（本地文档 → semantic memory）**
+  - 目标：本地 `md/txt` → chunk → 入库 + embedding；query 能召回 doc chunks
+  - 对标：Private Knowledge Base + Semantic Memory + Indexing
+  - 验证：新增 demo 文档后，`/v1/query` 的 raw_chunks 里能看到 `source=doc`
 
-### Day 4：补齐 Vector Index / ANN 的叙事与实现细节
-- 目标：明确索引/ANN 的工作方式（pgvector/或外部向量库），并把“索引/召回”元信息写进 context pack
-- 验证：ops 或调试视图能看到 index/检索方式（例如：pgvector + cosine + top-k）
+- **T3: Summary refresh 策略与解释字段（trigger_details）**
+  - 目标：把“为什么刷新 summary”讲清楚（token 阈值/idle/每 N 条消息）并写进 `trigger_details`
+  - 对标：Episodic summary 刷新策略
+  - 验证：`/v1/ops/condensations` 能看到触发原因与输入集合变化
 
-### Day 5：评测闭环（最小可量化）
-- 目标：落地 2–3 个可量化指标（token savings / cache hit / recall@k 或 pollution rate）
-- 验证：Ops/脚本能跑出指标并复现
+### P1（更像业界：质量与叙事）
 
-### Day 6：稳定性收口
-- 目标：把“跑不通/跑不稳”的风险清零（文档、脚本、默认配置）
-- 验证：新环境按 README 能跑通；`scripts/verify_demo.ps1` 一键验证
+- **T4: Vector Index / ANN 叙事与实现细节**
+  - 目标：明确检索方式（pgvector/或外部向量库）并把索引/召回元信息写进 context pack
+  - 对标：Vector Database / Vector Index / ANN
+  - 验证：context pack 中记录检索 method 与 top_k、距离度量等
 
-### Day 7：面试口径固化（最后一天再写讲稿）
-- 目标：把“对标业界 + 当前取舍 + 下一步路线”写成 10 分钟讲述提纲（SSOT 在 KB）
+- **T5: 动态治理策略（README 三项）**
+  - 目标：重要性/衰减、去重/冲突检测、session summary worker（已具备）三项都可验证
+  - 对标：Governance（图里隐含在 memory pipeline）
+  - 验证：audit/ops 中能看到治理产物或指标
+
+### P2（扩展：更完整的“引擎感”）
+
+- **T6: L3 Entity Layer（Neo4j）最小接入**
+  - 目标：从 memory card/doc chunks 提取实体与关系，落到图里并可查询
+  - 对标：Knowledge Graph / Entity layer（README 规划项）
+  - 验证：新增 `/v1/ops/graph/*` 或最小查询接口，前端能展示
+
+- **T7: CortexVisualizer 实装（真实数据驱动）**
+  - 目标：用真实 embedding/投影驱动 3D 点云，可按 source/namespace/session 过滤
+  - 对标：可观测控制台（非业界图核心，但提升“系统感”）
+  - 验证：UI 中可稳定展示点云并与检索结果联动
+
+- **T8: 评测闭环（可量化）**
+  - 目标：落地 2–3 个指标（token savings / cache hit / recall@k / pollution rate）
+  - 对标：评测与回归（面试叙事）
+  - 验证：脚本一键跑出指标并可复现

@@ -21,6 +21,29 @@ class TestCondensationCard(unittest.TestCase):
         self.assertEqual(obj.get("schema"), "memos.memory_card.v2")
         self.assertIn("actions", obj)
         self.assertIn("risks", obj)
+        self.assertIn("facts", obj)
+        self.assertIn("preferences", obj)
+        self.assertIn("constraints", obj)
+        self.assertIn("decisions", obj)
+
+    def test_structured_condense_extracts_user_constraints(self) -> None:
+        from memos_server.condensation import structured_condense
+
+        raw = (
+            "[L1]\n"
+            "[user] 不要去掉 /v1\n"
+            "[user] 我希望保留 v1 前缀\n"
+            "[agent] ok\n"
+            "[L2 score=0.9] API: /v1/query"
+        )
+        out = structured_condense(raw)
+        obj = json.loads(out)
+        constraints = obj.get("constraints") or []
+        preferences = obj.get("preferences") or []
+        facts = obj.get("facts") or []
+        self.assertTrue(any("/v1" in str(x) for x in constraints))
+        self.assertTrue(any("希望" in str(x) for x in preferences))
+        self.assertTrue(any("/v1" in str(x) for x in facts))
 
     def test_structured_condense_includes_excerpt_for_large_input(self) -> None:
         from memos_server.condensation import structured_condense
