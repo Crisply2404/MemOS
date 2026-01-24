@@ -13,12 +13,13 @@
 | 历史方案索引 | [archive/_index.md](archive/_index.md) |
 | 当前待执行的方案 | [plan/](plan/) |
 | 面试讲解大纲 | [interview_outline.md](interview_outline.md) |
+| 业界对标与架构图（推荐先读） | [modules/industry_alignment.md](modules/industry_alignment.md) |
 
 ## 知识库状态
 
 ```yaml
-最后更新: 2026-01-23 02:19
-模块数量: 4
+最后更新: 2026-01-24 00:40
+模块数量: 5
 待执行方案: 0
 ```
 

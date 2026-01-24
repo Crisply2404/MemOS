@@ -7,6 +7,7 @@
 - **[server]**: 新增 `/v1/ops/context_packs` 与 `/v1/ops/procedural`（procedural memory：prompt/tool registry）
 - **[web]**: RAG Debugger 支持展开查看 working memory（context pack），并将主视图命名对齐为 “Session Summary (Episodic)”
 - **[web]**: RAG Debugger 默认只展示 working memory（context pack），session summary history 下沉到 Pipeline/Vault（更贴近业界）
+- **[helloagents]**: 新增业界 Agent Memory 架构对标文档与架构图（对齐 README 与取舍口径）
 
 ### 修复
 - **[server/db]**: 修复 `condensations.version` 类型不一致导致 worker 写入失败（init schema 改为 `TEXT DEFAULT 'v1'`）

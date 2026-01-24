@@ -18,6 +18,22 @@
 
 ## 系统架构（目标形态）
 
+业界对标与取舍（推荐阅读）：`helloagents/modules/industry_alignment.md`
+
+```mermaid
+flowchart LR
+  U[User / App] -->|ingest/query| API[MemOS API\nFastAPI]
+  API --> L1[(Redis\nL1 window)]
+  API --> M[(Postgres + pgvector\nmemories)]
+  API --> CP[Working Memory\nContext Pack]
+  CP --> CPDB[(Postgres\ncontext_packs)]
+  API -->|enqueue| Q[(Redis RQ\ncondensation queue)]
+  Q --> W[Worker]
+  W --> C[(Postgres\ncondensations\nsession summaries)]
+  C --> API
+  API --> WEB[Web Ops Console]
+```
+
 ## 当前实现 vs 目标形态（面试讲解用）
 
 | 主题 | 当前实现（可验证） | 目标形态（规划） |

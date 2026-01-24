@@ -10,6 +10,7 @@
 | server | Memory Controller API（FastAPI） | 🚧 | [server.md](./server.md) |
 | worker | 异步治理任务执行器（RQ Worker） | 🚧 | [worker.md](./worker.md) |
 | infra | 本地/容器化运行与依赖（Docker/DB init） | 🚧 | [infra.md](./infra.md) |
+| industry_alignment | 业界 Agent Memory 架构对标与取舍 | ✅ | [industry_alignment.md](./industry_alignment.md) |
 
 ## 模块依赖关系
 
@@ -24,4 +25,3 @@ worker → redis(queue) → server(共享任务代码)
 - ✅ 稳定
 - 🚧 开发中
 - 📝 规划中
-
