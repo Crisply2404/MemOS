@@ -23,7 +23,7 @@ export const Card: React.FC<CardProps> = ({ children, className = '', title, act
   );
 };
 
-export const Badge: React.FC<{ children: ReactNode; color?: 'blue' | 'purple' | 'green' | 'red' }> = ({ children, color = 'blue' }) => {
+export const Badge: React.FC<{ children: ReactNode; color?: 'blue' | 'purple' | 'green' | 'red'; title?: string }> = ({ children, color = 'blue', title }) => {
   const colors = {
     blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     purple: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
@@ -32,7 +32,7 @@ export const Badge: React.FC<{ children: ReactNode; color?: 'blue' | 'purple' | 
   };
 
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-mono border ${colors[color]}`}>
+    <span title={title} className={`px-2 py-0.5 rounded text-xs font-mono border ${colors[color]}`}>
       {children}
     </span>
   );

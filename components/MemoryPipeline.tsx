@@ -1,5 +1,5 @@
 import { AlertCircle, Archive, ArrowRight, CheckCircle2, Layers, RefreshCw, Tag, Zap } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MemoryTier } from '../types';
 import { opsPipeline } from '../utils/api';
 import { Badge } from './ui/Card';
@@ -59,12 +59,14 @@ export const MemoryPipeline: React.FC<{ namespace?: string; sessionId?: string }
   const [activeNamespace, setActiveNamespace] = useState<string>(namespace || 'Project_X');
   const [activeSessionId, setActiveSessionId] = useState<string>(sessionId || '');
   const [vaultLimit, setVaultLimit] = useState<number>(10);
+  const [recentCompletedAt, setRecentCompletedAt] = useState<number | null>(null);
+  const prevQueueRef = useRef<number>(0);
 
   const processingStage: 'idle' | 'summarizing' | 'extracting' = useMemo(() => {
     if (pipelineQueueCount > 0) return 'summarizing';
-    if (vaultItems.length > 0) return 'extracting';
+    if (recentCompletedAt && Date.now() - recentCompletedAt < 2500) return 'extracting';
     return 'idle';
-  }, [pipelineQueueCount, vaultItems.length]);
+  }, [pipelineQueueCount, recentCompletedAt]);
 
   const processingItem: LogItem | null = useMemo(() => {
     if (processingStage === 'idle') return null;
@@ -85,6 +87,14 @@ export const MemoryPipeline: React.FC<{ namespace?: string; sessionId?: string }
       status: 'processed'
     };
   }, [processingStage, pipelineQueueCount]);
+
+  useEffect(() => {
+    const prev = prevQueueRef.current;
+    if (prev > 0 && pipelineQueueCount === 0) {
+      setRecentCompletedAt(Date.now());
+    }
+    prevQueueRef.current = pipelineQueueCount;
+  }, [pipelineQueueCount]);
 
   // Keep the filter aligned with the currently selected session by default.
   // If the user manually edits the filter, they can still override it.

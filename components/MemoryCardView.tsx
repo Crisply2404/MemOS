@@ -47,6 +47,9 @@ export function MemoryCardView(props: {
   showRawJson?: boolean;
 }): React.ReactElement {
   const card = tryParseMemoryCard(props.text);
+  const [openBucket, setOpenBucket] = React.useState<
+    'facts' | 'preferences' | 'constraints' | 'decisions' | null
+  >(null);
 
   if (!card) {
     return (
@@ -56,8 +59,8 @@ export function MemoryCardView(props: {
     );
   }
 
-  const showSchemaBadge = props.showSchemaBadge ?? true;
-  const showBuckets = props.showBuckets ?? true;
+  const showSchemaBadge = props.showSchemaBadge ?? false;
+  const showBuckets = props.showBuckets ?? false;
   const showRawExcerpt = props.showRawExcerpt ?? true;
   const showRawJson = props.showRawJson ?? true;
 
@@ -73,6 +76,36 @@ export function MemoryCardView(props: {
       {name}
     </span>
   );
+
+  const renderList = (items: string[] | undefined, maxItems: number) => {
+    const list = (items || []).filter(Boolean);
+    if (list.length === 0) return <div className="text-gray-500 font-sans text-xs">(none)</div>;
+    return (
+      <div className="space-y-1 text-gray-200 font-sans text-xs leading-relaxed">
+        {list.slice(0, maxItems).map((p, idx) => (
+          <div key={idx} className="flex gap-2">
+            <span className="text-gray-500">-</span>
+            <span className="whitespace-pre-wrap break-words">{p}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const buckets: Array<{
+    key: 'facts' | 'preferences' | 'constraints' | 'decisions';
+    label: string;
+    items: string[] | undefined;
+  }> = [
+    { key: 'facts', label: 'Facts', items: card.facts },
+    { key: 'decisions', label: 'Decisions', items: card.decisions },
+    { key: 'constraints', label: 'Constraints', items: card.constraints },
+    { key: 'preferences', label: 'Preferences', items: card.preferences },
+  ];
+
+  const openBucketMeta = openBucket
+    ? buckets.find((b) => b.key === openBucket) || null
+    : null;
 
   return (
     <div className="space-y-3">
@@ -91,6 +124,62 @@ export function MemoryCardView(props: {
       ) : null}
 
       <div className="grid grid-cols-1 gap-3">
+        <div className="bg-black/20 border border-mem-border rounded-lg p-3">
+          <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-2">Core Buckets</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {buckets.map((b) => {
+              const count = (b.items || []).filter(Boolean).length;
+              const enabled = count > 0;
+              const active = openBucket === b.key;
+              return (
+                <button
+                  key={b.key}
+                  type="button"
+                  className={`bg-black/10 border rounded-lg p-3 text-left transition-colors ${
+                    enabled ? 'hover:bg-white/5' : 'opacity-60 cursor-not-allowed'
+                  } ${active ? 'border-brand-accent/40 bg-brand-accent/5' : 'border-mem-border'}`}
+                  onClick={() => {
+                    if (!enabled) return;
+                    setOpenBucket((prev) => (prev === b.key ? null : b.key));
+                  }}
+                  disabled={!enabled}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[10px] uppercase tracking-wider text-gray-400">{b.label}</div>
+                    <div className="text-[10px] font-mono text-gray-500">{count}</div>
+                  </div>
+                  <div className="mt-2 text-xs text-gray-500 font-mono">
+                    {enabled ? (active ? 'Click to collapse' : 'Click to expand') : '(empty)'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {openBucketMeta ? (
+            <div className="mt-3 bg-black/10 border border-mem-border rounded-lg p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-wider text-gray-400">{openBucketMeta.label}</div>
+                  <div className="text-[11px] font-mono text-gray-500">
+                    {openBucketMeta.items?.length || 0} items
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded border border-gray-700 bg-black/30 text-xs text-gray-200 hover:bg-white/10"
+                  onClick={() => setOpenBucket(null)}
+                >
+                  Collapse
+                </button>
+              </div>
+              <div className="mt-3 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+                {renderList(openBucketMeta.items, 1000)}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
         <div className="bg-black/20 border border-mem-border rounded-lg p-3">
           <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-2">Risks</div>
           {(risks && risks.length > 0) ? (

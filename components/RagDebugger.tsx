@@ -285,14 +285,14 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
         </form>
       </div>
 
-      {/* Right: RAG 透视 (Perspective) */}
+      {/* Right: Context inspection */}
       <div className="flex flex-col gap-4 h-full">
         {/* Retrieval Status */}
         <div className="bg-mem-panel rounded-xl border border-mem-border p-4">
            <div className="flex items-center justify-between mb-2">
              <h3 className="font-semibold text-gray-200 flex items-center gap-2">
                <Database size={16} className="text-brand-secondary" />
-               RAG Retrieval Context
+               Context Retrieval
              </h3>
              {isProcessing && <span className="text-xs text-brand-accent animate-pulse">Processing L1/L2/L3...</span>}
            </div>
@@ -319,10 +319,18 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
         <div className="flex-1 bg-mem-panel rounded-xl border border-mem-border overflow-hidden flex flex-col">
            <div className="p-3 bg-white/5 border-b border-mem-border flex justify-between items-center">
              <span className="text-sm font-semibold text-gray-300">Context Optimization Engine</span>
-             {retrievalContext ? (
-               <Badge color="green">Saved {Math.round((1 - retrievalContext.tokenUsageCondensed / retrievalContext.tokenUsageOriginal) * 100)}% Tokens</Badge>
-             ) : null}
-           </div>
+              {retrievalContext ? (() => {
+                const original = retrievalContext.tokenUsageOriginal || 0;
+                const condensed = retrievalContext.tokenUsageCondensed || 0;
+                if (original <= 0) return <Badge color="green">Saved 0% Tokens</Badge>;
+                const diff = original - condensed;
+                if (diff >= 0) {
+                  const pct = Math.max(0, Math.round((diff / original) * 100));
+                  return <Badge color="green">Saved {pct}% Tokens</Badge>;
+                }
+                return <Badge color="red">Overhead +{Math.abs(diff)} Tokens</Badge>;
+              })() : null}
+            </div>
            
            <div className="flex-1 grid grid-cols-2 divide-x divide-mem-border overflow-hidden">
               {/* Raw Column */}
@@ -342,7 +350,7 @@ export const RagDebugger: React.FC<RagDebuggerProps> = ({
                   <ArrowRight size={14} className="text-gray-500" />
                 </div>
                 <div className="p-2 bg-brand-accent/10 border-b border-brand-accent/20 text-xs text-brand-accent font-mono flex justify-between">
-                  <span>WORKING MEMORY (CONTEXT PACK)</span>
+                  <span>WORKING MEMORY (SUMMARY)</span>
                   <span>{retrievalContext?.tokenUsageCondensed || 0} Tokens</span>
                 </div>
                 <div className="p-4 overflow-y-auto custom-scrollbar text-xs text-gray-200 font-mono leading-relaxed bg-brand-accent/5">

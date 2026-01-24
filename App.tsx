@@ -116,14 +116,8 @@ const App: React.FC = () => {
         clear_audit: false
       });
 
-      const systemMsg: ChatMessage = {
-        id: `sys-${Date.now()}`,
-        role: 'system',
-        content: 'Session reset: cleared Redis (L1) + Postgres (memories/condensations/audit) for this session.',
-        timestamp: Date.now()
-      };
-
-      setChatMessages(prev => [...prev, systemMsg]);
+      // Match user expectations: a reset should clear the conversation UI.
+      setChatMessages([]);
       setCurrentContext(null);
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Failed to reset session');
@@ -319,7 +313,7 @@ const App: React.FC = () => {
           />
           <SidebarItem 
             icon={Microscope} 
-            label="RAG Debugger" 
+            label="Context Inspector" 
             active={view === ViewMode.RAG_DEBUG} 
             onClick={() => setView(ViewMode.RAG_DEBUG)} 
           />
@@ -364,7 +358,7 @@ const App: React.FC = () => {
             {view === ViewMode.DASHBOARD && 'Operational Dashboard'}
             {view === ViewMode.PIPELINE && 'Ingestion & Processing Pipeline'}
             {view === ViewMode.RADAR && 'Semantic Relevance Radar'}
-            {view === ViewMode.RAG_DEBUG && 'Context Retrieval & Optimization'}
+            {view === ViewMode.RAG_DEBUG && 'Context Inspector'}
             {view === ViewMode.AUDIT && 'Audit & Explainability'}
           </h2>
           <div className="flex items-center gap-4">
