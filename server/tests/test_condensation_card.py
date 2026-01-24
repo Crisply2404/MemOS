@@ -33,6 +33,8 @@ class TestCondensationCard(unittest.TestCase):
             "[L1]\n"
             "[user] 不要去掉 /v1\n"
             "[user] 我希望保留 v1 前缀\n"
+            "[user] 决策：保留 /v1；不接入 LLM\n"
+            "[user] 事实：后端 FastAPI；L2 是 Postgres+pgvector\n"
             "[agent] ok\n"
             "[L2 score=0.9] API: /v1/query"
         )
@@ -40,10 +42,14 @@ class TestCondensationCard(unittest.TestCase):
         obj = json.loads(out)
         constraints = obj.get("constraints") or []
         preferences = obj.get("preferences") or []
+        decisions = obj.get("decisions") or []
         facts = obj.get("facts") or []
         self.assertTrue(any("/v1" in str(x) for x in constraints))
         self.assertTrue(any("希望" in str(x) for x in preferences))
+        self.assertTrue(any("/v1" in str(x) for x in decisions))
+        self.assertTrue(any("LLM" in str(x) for x in decisions))
         self.assertTrue(any("/v1" in str(x) for x in facts))
+        self.assertTrue(any("FastAPI" in str(x) for x in facts))
 
     def test_structured_condense_includes_excerpt_for_large_input(self) -> None:
         from memos_server.condensation import structured_condense

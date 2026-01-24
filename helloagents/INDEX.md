@@ -12,7 +12,6 @@
 | 项目变更历史 | [CHANGELOG.md](CHANGELOG.md) |
 | 历史方案索引 | [archive/_index.md](archive/_index.md) |
 | 当前待执行的方案 | [plan/](plan/) |
-| 面试讲解大纲 | [interview_outline.md](interview_outline.md) |
 | 业界对标与架构图（推荐先读） | [modules/industry_alignment.md](modules/industry_alignment.md) |
 
 ## 知识库状态

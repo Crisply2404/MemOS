@@ -8,6 +8,8 @@ import re
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from memos_server.extractor import extract_directive_buckets
+
 
 @dataclass(frozen=True)
 class CondensationResult:
@@ -91,29 +93,42 @@ def structured_condense(raw_text: str) -> str:
             actions.append(s)
 
     risks: list[str] = []
+    for s in cleaned_lines:
+        if any(k in s for k in ["踩坑", "坑：", "pitfall", "gotcha"]):
+            risks.append(s)
+
     lowered = text_value.lower()
     if "cors" in lowered:
-        risks.append("CORS issues in local dev")
+        if "password authentication failed" in lowered or "500" in lowered:
+            risks.append("CORS-like symptom masking backend error (e.g. DB auth / 500)")
+        elif "access-control-allow-origin" in lowered or "access-control-allow-headers" in lowered:
+            risks.append("CORS header/config mismatch")
     if "connection refused" in lowered or "could not connect" in lowered:
         risks.append("DB/Redis connection refused")
     if "localhost" in lowered or "127.0.0.1" in lowered:
         risks.append("Container vs host networking mismatch (localhost)")
 
-    facts: list[str] = []
-    preferences: list[str] = []
-    constraints: list[str] = []
-    decisions: list[str] = []
+    extracted = extract_directive_buckets(cleaned_lines)
 
-    # Facts: extract stable technical anchors that help debugging and demos.
+    facts: list[str] = list(extracted.facts)
+    preferences: list[str] = list(extracted.preferences)
+    constraints: list[str] = list(extracted.constraints)
+    decisions: list[str] = list(extracted.decisions)
+
+    # Facts: add stable technical anchors that help debugging and demos.
     for s in cleaned_lines:
         if "/v1/" in s:
             facts.append("API uses versioned prefix (/v1/*)")
 
-        m = re.search(r"\b(postgres|redis)\b", s.lower())
-        if m and re.search(r"\b\d{4,5}\b", s):
-            port = re.search(r"\b(\d{4,5})\b", s)
-            if port:
-                facts.append(f"{m.group(1)} port {port.group(1)} mentioned")
+        low = s.lower()
+        if "postgres" in low and "5432" in s:
+            facts.append("postgres port 5432")
+        if "redis" in low and "6379" in s:
+            facts.append("redis port 6379")
+        if ("uvicorn" in low or "memos_server.app" in low or "api" in low) and "8000" in s:
+            facts.append("api port 8000")
+        if ("npm" in low or "vite" in low) and "3000" in s:
+            facts.append("web port 3000")
 
         if "memos" in s.lower() and ("我们在做" in s or "MemOS" in s):
             facts.append("Project: MemOS (agent memory / context governance)")
@@ -122,15 +137,6 @@ def structured_condense(raw_text: str) -> str:
             facts.append("L2 uses Postgres + pgvector for vector search")
         if "rq" in s.lower() or "worker" in s.lower():
             facts.append("Async worker processes background jobs (RQ)")
-
-    # Preferences/constraints/decisions: read from user-style directives.
-    for s in cleaned_lines:
-        if any(k in s for k in ["我希望", "我倾向于", "我更喜欢", "prefer", "希望能", "希望"]):
-            preferences.append(s)
-        if any(k in s for k in ["必须", "不能", "不要", "不许", "保留", "禁止"]):
-            constraints.append(s)
-        if any(k in s for k in ["决定", "选择", "我选", "选A", "选B", "keep", "保留 /v1", "保留/v1"]):
-            decisions.append(s)
 
     # Keep concise: avoid overfitting and keep only a few items.
     facts = uniq(facts)[:8]
@@ -159,8 +165,12 @@ def structured_condense(raw_text: str) -> str:
     return json.dumps(card, ensure_ascii=False, separators=(",", ":"))
 
 
-def _card_to_plain_text(card_json: str) -> str:
-    """Convert a stored memory card JSON into a small plain-text hint for rolling summaries."""
+def card_to_plain_text(card_json: str) -> str:
+    """Convert a stored memory card JSON into a small plain-text working-memory string.
+
+    This is the string we'd actually send to an LLM as "working memory".
+    It intentionally hides internal schema/version fields and keeps output short.
+    """
 
     try:
         obj = json.loads(card_json)
@@ -169,13 +179,27 @@ def _card_to_plain_text(card_json: str) -> str:
         if obj.get("schema") not in ("memos.memory_card.v1", "memos.memory_card.v2"):
             return card_json
         parts: list[str] = []
-        for key in ("facts", "preferences", "constraints", "decisions", "risks", "actions"):
+
+        def clip(value: object) -> str:
+            s = str(value)
+            if len(s) <= 140:
+                return s
+            return s[:140].rstrip() + "…"
+
+        # For rolling summaries, keep stable signals only. Avoid replaying transient "risks"
+        # forever (they tend to become noisy after a few iterations).
+        for key in ("facts", "decisions", "constraints", "preferences", "actions"):
             items = obj.get(key)
             if isinstance(items, list) and items:
-                parts.append(f"{key}: " + "; ".join(str(x) for x in items[:6]))
+                parts.append(f"{key}: " + "; ".join(clip(x) for x in items[:4]))
         return "\n".join(parts) if parts else card_json
     except Exception:
         return card_json
+
+
+# Backwards compatibility (older call sites)
+def _card_to_plain_text(card_json: str) -> str:  # noqa: D401
+    return card_to_plain_text(card_json)
 
 
 def _fetch_messages(session: Session, memory_ids: list[str]) -> list[dict[str, str]]:
@@ -262,7 +286,7 @@ def run_condensation_job(
 
         prev_hint = ""
         if prev_summary_text:
-            prev_hint = _card_to_plain_text(prev_summary_text)
+            prev_hint = card_to_plain_text(prev_summary_text)
 
         if messages:
             episodic = "\n".join(f"[{m['role']}] {m['text']}" for m in messages)
@@ -272,7 +296,7 @@ def run_condensation_job(
         combined = "\n".join([p for p in [prev_hint.strip(), episodic.strip()] if p])
         condensed = structured_condense(combined)
         token_original = estimate_tokens(combined)
-        token_condensed = estimate_tokens(condensed)
+        token_condensed = estimate_tokens(card_to_plain_text(condensed))
 
         details = dict(trigger_details)
         details.setdefault("schema", version)

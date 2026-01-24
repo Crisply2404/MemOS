@@ -29,7 +29,7 @@ from memos_server.api_models import (
     ResetSessionResponse,
 )
 from memos_server.db import create_db, ensure_schema
-from memos_server.condensation import estimate_tokens, latest_condensation
+from memos_server.condensation import card_to_plain_text, estimate_tokens, latest_condensation
 from memos_server.queue import Queues, create_queues
 from memos_server.embedding import fake_embedding
 from memos_server.l1_redis import L1Redis, append_message, clear_session, create_l1, get_window
@@ -210,13 +210,9 @@ def create_app() -> FastAPI:
                 {"ns": namespace, "sid": session_id},
             )
 
-        demo_messages = [
-            ("user", "我们在做 MemOS：Agent 记忆与上下文治理服务。后端 FastAPI + Redis(L1) + Postgres(pgvector)(L2) + RQ worker（condensation）。"),
-            ("user", "我的偏好：所有命令用 Windows PowerShell 7（pwsh）；回答要简洁，先结论后解释；所有步骤必须可验证（给具体命令/URL）。"),
-            ("user", "运行方式：docker compose 启动 postgres/redis；后端 uvicorn memos_server.app:create_app --factory --reload --port 8000；前端 npm run dev -- --port 3000。"),
-            ("user", "踩坑：本机 postgres 占用 5432 会导致连错数据库并出现 password authentication failed，表现像 CORS 但本质是 500。"),
-            ("agent", "下一步计划：1）Pipeline 切真数据（/v1/ops/pipeline）；2）1 分钟端到端演示脚本；3）轻量 Audit 面板；4）评测/回归脚本。"),
-        ]
+        from memos_server.demo_seed import get_demo_seed_messages_zh
+
+        demo_messages = get_demo_seed_messages_zh()
 
         inserted = 0
         memory_ids: list[str] = []
@@ -331,6 +327,9 @@ def create_app() -> FastAPI:
                 )
             )
 
+        # Rerank for explainability/debugger: keep the same candidates but reorder by a blended score.
+        chunks.sort(key=lambda c: float((c.metadata or {}).get("rerank_score") or 0.0), reverse=True)
+
         raw_combined = "\n".join(["[L1]" + "\n" + l1_text] + [f"[L2 score={c.score:.3f}] {c.text}" for c in chunks])
 
         # 2) Session summary snapshots (industry-aligned episodic condensation).
@@ -342,12 +341,12 @@ def create_app() -> FastAPI:
 
         if persisted:
             condensed = persisted.condensed_text
-            token_original = persisted.token_original
-            token_condensed = persisted.token_condensed
         else:
             condensed = raw_combined[:240] + ("..." if len(raw_combined) > 240 else "")
-            token_original = estimate_tokens(raw_combined)
-            token_condensed = estimate_tokens(condensed)
+
+        # Token accounting (what an LLM would see)
+        token_original = estimate_tokens(raw_combined)
+        token_condensed = estimate_tokens(card_to_plain_text(condensed))
 
         since = persisted.created_at if persisted else "1970-01-01T00:00:00Z"
         new_rows = (

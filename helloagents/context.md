@@ -46,7 +46,7 @@
 ## 3. 项目概述
 
 ### 核心能力（当前仓库可验证）
-- Web UI：Operational Dashboard / Pipeline / Radar / RAG Debugger / Audit
+- Web UI：Operational Dashboard / Pipeline / Radar / Context Inspector / Audit
 - API：`/v1/ingest`、`/v1/query`、`/v1/ops/*`、`/v1/dev/seed`、`/v1/sessions/reset`
 - Worker：监听 `condensation` 队列执行压缩（condensation）
 

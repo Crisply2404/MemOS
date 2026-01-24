@@ -5,14 +5,21 @@
 ### 新增
 - **[server]**: 对标业界：condensation 明确为 session summary（episodic）快照，并新增 query 级 working memory `context_packs`（可回放）
 - **[server]**: 新增 `/v1/ops/context_packs` 与 `/v1/ops/procedural`（procedural memory：prompt/tool registry）
-- **[web]**: RAG Debugger 支持展开查看 working memory（context pack），并将主视图命名对齐为 “Session Summary (Episodic)”
-- **[web]**: RAG Debugger 默认只展示 working memory（context pack），session summary history 下沉到 Pipeline/Vault（更贴近业界）
+- **[web]**: Context Inspector 支持展开查看 working memory（context pack），并将主视图命名对齐为 “Session Summary (Episodic)”
+- **[web]**: Context Inspector 默认只展示 working memory（context pack），session summary history 下沉到 Pipeline/Vault（更贴近业界）
 - **[helloagents]**: 新增业界 Agent Memory 架构对标文档与架构图（对齐 README 与取舍口径）
+- **[web]**: Context Inspector 的 Core Buckets 改为可折叠面板并限制默认展示数量，避免内容挤压
+- **[server/web]**: Token Savings 口径改为 raw context vs plain working memory（不再把 JSON 结构开销计入“节省”）
+- **[server]**: `/v1/dev/seed` 扩充为“项目开发历程/现状”语料，便于演示触发 buckets（facts/preferences/constraints/decisions）与 pitfalls
+- **[web]**: Working Memory（Summary）隐藏 buckets 标签行（facts/preferences/constraints/decisions），避免重复信息
 
 ### 修复
 - **[server/db]**: 修复 `condensations.version` 类型不一致导致 worker 写入失败（init schema 改为 `TEXT DEFAULT 'v1'`）
 - **[web]**: 结构化 memory card 兼容“被二次 JSON 编码”的字符串；历史面板默认按卡片渲染并补充用途说明
 - **[repo]**: `ROADMAP_TODO.md` 移除已弃用的 A2 标识，避免面试叙事残留
+- **[web]**: Memory Pipeline 的 Refinery Worker 在任务完成后自动回到 Idle（不再因为 Vault 有历史而一直显示 Extracting）
+- **[web]**: Reset Session 现在会清空对话框（符合“重置=清空交互记录”的用户预期）
+- **[web]**: Core Buckets 默认不再在卡片内挤占空间，改为点击就地展开查看完整条目
 
 ## [0.0.1] - 2026-01-23
 
@@ -35,7 +42,7 @@
 ### 新增
 - **[server]**: 新增 `/v1/ops/condensations` 用于按 session 回放 condensation 历史（含 version/trigger/source ids）
   - 方案: [202601230030_readme-code-align](archive/2026-01/202601230030_readme-code-align/)
-- **[web]**: RAG Debugger 增加 Condensation History 面板，支持查看历史与结构化卡片内容
+- **[web]**: Context Inspector 增加 Condensation History 面板，支持查看历史与结构化卡片内容
   - 方案: [202601230030_readme-code-align](archive/2026-01/202601230030_readme-code-align/)
 
 ## [0.0.0] - 2026-01-23

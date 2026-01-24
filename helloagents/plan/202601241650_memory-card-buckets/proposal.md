@@ -35,5 +35,4 @@
 ## 验证
 
 - 单元测试：`server/tests/test_condensation_card.py` 覆盖 buckets 抽取
-- UI：RAG Debugger 的 working memory（context pack）中可看到 buckets 有内容
-
+- UI：Context Inspector 的 working memory（context pack）中可看到 buckets 有内容
